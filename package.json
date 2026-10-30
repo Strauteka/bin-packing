@@ -1,6 +1,6 @@
 {
   "name": "@strauteka/bin-packing",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "3D bin packing for container loading: an empty-space distribution core and a randomised packer. TypeScript port of a master's thesis algorithm.",
   "keywords": [
     "bin-packing",
