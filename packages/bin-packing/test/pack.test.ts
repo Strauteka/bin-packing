@@ -392,15 +392,20 @@ describe('loading order', () => {
   });
 
   it('builds walls: back to front, and inside a wall across the width, then up', () => {
-    // Apart from boxes pulled forward as support, the order is (x, then y, then z).
+    // One step per wall, back to front; inside a wall (apart from early supports) across, then up.
     const steps = loadingSteps(result.placements);
-    for (const step of steps.filter((s) => !s.support))
-      step.boxes.slice(1).forEach((b, i) => {
-        const a = step.boxes[i]!;
+    const walls = steps.map((s) => s.x);
+    expect(walls).toEqual([...new Set(walls)].sort((a, b) => a - b));
+    for (const step of steps) {
+      const own = step.boxes.filter((b) => !step.early.includes(b));
+      expect(own.every((b) => b.x === step.x)).toBe(true);
+      own.slice(1).forEach((b, i) => {
+        const a = own[i]!;
         expect(a.y < b.y || (a.y === b.y && a.z < b.z), 'inside a wall: across, then up').toBe(true);
       });
-    const walls = steps.filter((s) => !s.support).map((s) => s.x);
-    expect(walls).toEqual([...walls].sort((a, b) => a - b));
+      expect(step.early.every((b) => b.x > step.x)).toBe(true);
+    }
+    expect(steps.flatMap((s) => s.boxes)).toEqual(sequence);
     expect(sequence[0]).toMatchObject({ x: 0, y: 0, wall: 0 });
   });
 
@@ -418,8 +423,11 @@ describe('loading order', () => {
     const top = block('top', 0, 300, 0, 1200); // wall 1, lies on floor-back and floor-next
     const seq = loadingSequence([top, floorNext, floorSide, floorBack]);
     expect(seq.map((b) => b.id)).toEqual(['floor-back', 'floor-side', 'floor-next', 'top']);
+    // One step for wall 1, which includes floor-next from wall 2, loaded early as support.
     const steps = loadingSteps([top, floorNext, floorSide, floorBack]);
-    expect(steps.map((s) => [s.wall, s.support])).toEqual([[0, false], [1, true], [0, false]]);
+    expect(steps.map((s) => [s.wall, s.boxes.map((b) => b.id), s.early.map((b) => b.id)])).toEqual([
+      [0, ['floor-back', 'floor-side', 'floor-next', 'top'], ['floor-next']],
+    ]);
   });
 
   it('marks nested supports: a support that itself stands on a box further forward', () => {
@@ -429,8 +437,8 @@ describe('loading order', () => {
     const bridge = { ...block('bridge', 600, 300, 0, 1200), height: 300 }; // wall 2, on middle and far
     const top = block('top', 0, 600, 0, 1200); // wall 1, on bridge (and nothing else at that height)
     const steps = loadingSteps([top, bridge, middle, far, floor]);
-    // top needs bridge, which needs far: far and bridge are both supports loaded early.
-    expect(steps.map((s) => [s.x, s.support])).toEqual([[0, false], [600, true], [1200, true], [600, true], [0, false]]);
+    // top needs bridge, which needs middle and far: all three are loaded early, in wall 1's step.
+    expect(steps.map((s) => [s.x, s.early.map((b) => b.id)])).toEqual([[0, ['middle', 'far', 'bridge']]]);
   });
 
   it('loads a box that overhangs towards the back after the box it stands on', () => {

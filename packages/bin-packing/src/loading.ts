@@ -12,17 +12,19 @@ export interface LoadingBox {
   readonly width: number;
 }
 
-/** A run of consecutive boxes in the loading sequence that start at the same distance from the back wall. */
+/**
+ * One wall of the loading plan: the boxes that start at the same distance from the back wall,
+ * in loading order, plus any boxes from later walls that have to go in first because a box of
+ * this wall stands on them.
+ */
 export interface LoadingStep {
   /** Index of the wall (distinct `x`), from 0 at the back. */
   readonly wall: number;
   readonly x: number;
+  /** All boxes of this step, in loading order, including `early` ones. */
   readonly boxes: LoadingBox[];
-  /**
-   * True when these boxes are loaded early, out of wall order, because a box in an earlier wall
-   * stands on them.
-   */
-  readonly support: boolean;
+  /** Boxes from later walls loaded during this step, because boxes of this wall stand on them. */
+  readonly early: LoadingBox[];
 }
 
 type Box = Omit<LoadingBox, 'wall'>;
@@ -62,20 +64,35 @@ export function loadingSequence(placements: readonly Placement[]): LoadingBox[] 
   return order;
 }
 
-/** The loading sequence split into steps: runs of boxes at the same distance from the back wall. */
+/** The loading sequence as one step per wall, with supports from later walls folded into the wall that needs them. */
 export function loadingSteps(placements: readonly Placement[]): LoadingStep[] {
-  const steps: { wall: number; x: number; boxes: LoadingBox[] }[] = [];
+  // Runs of consecutive boxes at the same distance from the back.
+  const runs: { x: number; boxes: LoadingBox[] }[] = [];
   for (const box of loadingSequence(placements)) {
-    const last = steps.at(-1);
+    const last = runs.at(-1);
     if (last && last.x === box.x) last.boxes.push(box);
-    else steps.push({ wall: box.wall, x: box.x, boxes: [box] });
+    else runs.push({ x: box.x, boxes: [box] });
   }
-  // A step loaded out of wall order (further from the back than some later step) is support for a
-  // box loaded later; supports can be nested, so compare with every later step, not just the next.
+  // A run further from the back than some later run was pulled forward as support (supports can
+  // be nested, so compare with every later run). It belongs to the next wall run that needs it.
   const laterMin: number[] = [];
-  for (let i = steps.length - 1, min = Infinity; i >= 0; i--) {
+  for (let i = runs.length - 1, min = Infinity; i >= 0; i--) {
     laterMin[i] = min;
-    min = Math.min(min, steps[i]!.x);
+    min = Math.min(min, runs[i]!.x);
   }
-  return steps.map((s, i) => ({ ...s, support: s.x > laterMin[i]! }));
+  const steps: { wall: number; x: number; boxes: LoadingBox[]; early: LoadingBox[] }[] = [];
+  let pending: LoadingBox[] = [];
+  runs.forEach((run, i) => {
+    if (run.x > laterMin[i]!) {
+      pending.push(...run.boxes);
+      return;
+    }
+    const last = steps.at(-1);
+    const step = last && last.x === run.x ? last : { wall: run.boxes[0]!.wall, x: run.x, boxes: [], early: [] };
+    if (step !== last) steps.push(step);
+    step.boxes.push(...pending, ...run.boxes);
+    step.early.push(...pending);
+    pending = [];
+  });
+  return steps;
 }

@@ -110,7 +110,7 @@ best = best ? betterResult(best, part) : part;
 - Only then move to the next distance from the back, so nobody has to climb onto boxes.
 - A box is never loaded before every box it stands on. If the next box overhangs a box from a later wall, that box is loaded first (nested supports too).
 
-`loadingSteps(result.placements)` groups the sequence into steps of boxes at the same distance from the back. Each step has its `wall` number and a `support` flag for boxes loaded early because something in an earlier wall stands on them. This is useful for printed loading plans.
+`loadingSteps(result.placements)` gives one step per wall: the boxes at the same distance from the back, plus `early`, the boxes from walls further forward that have to go in during this step because boxes of this wall stand on them. This is useful for printed loading plans.
 
 ## How it works
 
