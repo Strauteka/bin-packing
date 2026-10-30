@@ -59,6 +59,8 @@ Each placement is a block of `count.length × count.height × count.width` ident
 
 Per item:
 
+- `floorOnly: true` places it only directly on the container floor, and `noStackOnTop: true` never puts anything on it (both are used for loaded pallets).
+
 - `rotations` sets the allowed orientations: `'all'` (default, all six), `'upright'` (height stays vertical, "this side up"), or a list. `rotationsFor()` builds the list from which sides may point up, as in the thesis (`allowL`, `allowH`, `allowW`):
 
   ```ts
@@ -103,6 +105,20 @@ best = best ? betterResult(best, part) : part;
 ```
 
 `compareResults(a, b)` gives the order: more volume packed first, then the lower load.
+
+## Pallets
+
+```ts
+import { buildPallets, palletItem, expandPallets, pack } from '@strauteka/bin-packing';
+
+const eur = { length: 1200, width: 800, baseHeight: 150, maxHeight: 2120, count: 10 };
+const { pallets, left } = buildPallets(eur, palletBoxes, options); // fills pallets one after another
+const result = pack({ container, items: [...pallets.map((p) => palletItem(p, 1)), ...looseBoxes, ...left] });
+const placed = expandPallets(result.placements, pallets); // bases + every box, in container coordinates
+```
+
+- **Pallet items** are upright (they may turn a quarter round), go on the floor only, and nothing is stacked on them.
+- **`expandPallets`** turns each packed pallet into its base (`pallet-n:base`) plus its boxes, turned with the pallet if needed.
 
 ## Loading order
 

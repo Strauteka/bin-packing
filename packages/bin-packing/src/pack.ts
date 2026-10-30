@@ -27,6 +27,10 @@ export interface ItemInput extends Size3 {
   readonly rotations?: 'all' | 'upright' | readonly Rotation[];
   /** Lower numbers are packed first (default 1). */
   readonly priority?: number;
+  /** Only place it directly on the container floor (default false). */
+  readonly floorOnly?: boolean;
+  /** Never place anything on top of it (default false). */
+  readonly noStackOnTop?: boolean;
 }
 
 export interface PackOptions {
@@ -299,6 +303,8 @@ function toItem(input: ItemInput, index: number): Item {
     quantity: input.quantity,
     rotations: toRotations(input.rotations, where),
     priority: input.priority ?? 1,
+    ...(input.floorOnly && { floorOnly: true }),
+    ...(input.noStackOnTop && { noStackOnTop: true }),
   };
 }
 

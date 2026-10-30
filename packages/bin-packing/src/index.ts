@@ -3,6 +3,8 @@ export { pack, boxes, compareResults, betterResult, stackingVariations } from '.
 export type { PackInput, PackOptions, PackResult, ItemInput, Placement, ItemCount, Size3, Variation } from './pack.js';
 export { rotationsFor } from './rotations.js';
 export { loadingSequence, loadingSteps } from './loading.js';
+export { buildPallets, palletItem, expandPallets } from './pallets.js';
+export type { PalletSpec, PalletLoad, PalletsResult } from './pallets.js';
 export type { LoadingBox, LoadingStep } from './loading.js';
 export type { VerticalSides } from './rotations.js';
 

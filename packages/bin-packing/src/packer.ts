@@ -8,6 +8,10 @@ export interface PackItem {
   readonly rotations: readonly Rotation[];
   /** Lower numbers are packed first. */
   readonly priority: number;
+  /** Only placed directly on the floor of the bin (e.g. a loaded pallet). */
+  readonly floorOnly?: boolean;
+  /** Nothing is ever placed on top of it (e.g. a loaded pallet). */
+  readonly noStackOnTop?: boolean;
 }
 
 /** A box type and how many of it are already placed. */
@@ -43,7 +47,7 @@ export function packOnce<T extends PackItem>(
       const candidates = tracked.filter((t) => t.item.priority === priority && t.item.quantity > t.used);
       const cargo = findCargo(current.spaces, candidates, strategy, random, fitTolerance, mode);
       if (!cargo) break;
-      current = current.add(cargo);
+      current = current.add(cargo, cargo.ref.noStackOnTop === true);
       // The placed type moves to the end of the list, as in the thesis (it affects tie-breaking).
       tracked = [
         ...tracked.filter((t) => t.item !== cargo.ref),
@@ -72,11 +76,20 @@ function selectSpace<T extends PackItem>(
   candidates: readonly Tracked<T>[],
   strategy: number,
 ): Space | undefined {
-  const shapes = candidates.flatMap((t) => t.item.rotations.map((r) => rotate(t.item.size, r)));
   const direction = strategy % 2 === 0 ? 1 : -1;
+  const key = (s: Space) => [s.h_ * direction, s.l_ * direction, s.w_ * direction];
+  if (candidates.some((t) => t.item.floorOnly)) {
+    // Floor-only items can use a space only if it starts on the floor.
+    const usable = (s: Space, t: Tracked<T>) => (!t.item.floorOnly || s.h_ === 0) && t.item.rotations.some((r) => fits(s, rotate(t.item.size, r)));
+    return minBy(
+      spaces.filter((s) => candidates.some((t) => usable(s, t))),
+      key,
+    );
+  }
+  const shapes = candidates.flatMap((t) => t.item.rotations.map((r) => rotate(t.item.size, r)));
   return minBy(
     spaces.filter((s) => shapes.some((d) => fits(s, d))),
-    (s) => [s.h_ * direction, s.l_ * direction, s.w_ * direction],
+    key,
   );
 }
 
@@ -93,14 +106,19 @@ function bestCargo<T extends PackItem>(
   { layers = false, tallestFirst = false }: PackMode,
 ): Cargo<T> | undefined {
   const builders = layers ? [buildA, buildB] : [buildA, buildB, buildC];
-  const blocks = candidates.flatMap((t) =>
-    t.item.rotations
-      .filter((r) => fits(space, rotate(t.item.size, r)))
-      .flatMap((r) => {
-        const left = t.item.quantity - t.used;
-        return builders.map((build) => build(space, t.item, left, r, random));
-      }),
-  );
+  const blocks = candidates
+    // Floor-only items only go in spaces on the floor.
+    .filter((t) => !t.item.floorOnly || space.h_ === 0)
+    .flatMap((t) => {
+      // Items that must stay on the floor or carry nothing are never stacked in columns.
+      const own = t.item.floorOnly || t.item.noStackOnTop ? [buildA, buildB] : builders;
+      return t.item.rotations
+        .filter((r) => fits(space, rotate(t.item.size, r)))
+        .flatMap((r) => {
+          const left = t.item.quantity - t.used;
+          return own.map((build) => build(space, t.item, left, r, random));
+        });
+    });
   return minBy(blocks, (c) => {
     const left = subtract(space, c);
     const gaps = (layers ? [left.l, left.w] : [left.l, left.h, left.w]).sort((a, b) => a - b);
