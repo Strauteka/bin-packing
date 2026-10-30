@@ -50,6 +50,8 @@ Each placement is a block of `count.length × count.height × count.width` ident
 | `seed` | `1` | The same seed and input always give the same result |
 | `fitTolerance` | `0` | Gaps up to this size count as a snug fit when choosing blocks (the thesis used 50 mm) |
 | `stacking` | all `0` | Space merging and over-stacking, passed to the core. See [stacking settings](https://github.com/Strauteka/bin-packing/tree/main/packages/space-utilization#stacking-settings) |
+| `variations` | none | Stacking principles that attempts take turns with, see below |
+| `firstAttempt`, `attemptStep` | `0`, `1` | Which attempts to run, for splitting the search across workers |
 
 Per item:
 
@@ -63,6 +65,37 @@ Per item:
   ```
 
 - `priority` (default 1): lower numbers are packed first.
+
+## Variations: try several stacking principles
+
+The same strategy packs differently with different stacking settings, so the search can vary them too. `stackingVariations(base, fitTolerance)` builds 10 principles around your settings:
+- no, normal and double over-stacking,
+- each with no, normal and double fit tolerance,
+- plus merging switched off.
+
+Attempts take turns with them, and the result's `variation` says which one won.
+
+```ts
+import { pack, stackingVariations } from '@strauteka/bin-packing';
+
+const stacking = { overhangLength: 100, narrowLength: 100, overhangWidth: 100, narrowWidth: 100, heightTolerance: 5, minSpaceSide: 100 };
+pack({ container, items, options: { attempts: 500, stacking, fitTolerance: 50, variations: stackingVariations(stacking, 50) } });
+```
+
+On a 20 ft container with the thesis' 15-type load, 500 attempts reach 92.2% volume used, and 93.8% with variations (30 attempts: 89.6%).
+
+## Search on all cores
+
+Attempt `n` always packs the same way for the same input and seed. So workers can split the attempts and combine their results, and the answer is the same as one long run:
+
+```ts
+// in worker k of N, repeatedly, with c = 0, 1, 2, …
+const part = pack({ container, items, options: { ...options, attempts: 20, firstAttempt: k + c * 20 * N, attemptStep: N } });
+// on the main thread
+best = best ? betterResult(best, part) : part;
+```
+
+`compareResults(a, b)` gives the order: more volume packed first, then the lower load.
 
 ## How it works
 

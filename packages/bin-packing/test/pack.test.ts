@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { Space, rotate } from '@strauteka/space-utilization';
-import { boxes, pack, rotationsFor, type ItemInput, type PackResult } from '../src/index.js';
+import {
+  betterResult,
+  boxes,
+  compareResults,
+  pack,
+  rotationsFor,
+  stackingVariations,
+  type ItemInput,
+  type PackResult,
+} from '../src/index.js';
 
 // The thesis demo's container (mm) and stacking settings.
 const CONTAINER = { length: 5900, height: 2380, width: 2345 };
@@ -204,5 +213,62 @@ describe('pack with explicit rotations', () => {
     const box = { id: 'a', length: 1, height: 1, width: 1, quantity: 1 };
     expect(() => pack({ container, items: [{ ...box, rotations: [] }] })).toThrow(/at least one orientation/);
     expect(() => pack({ container, items: [{ ...box, rotations: ['xyz' as never] }] })).toThrow(/unknown rotation/);
+  });
+});
+
+describe('variations', () => {
+  it('builds distinct stacking principles around the base, base first', () => {
+    const variations = stackingVariations(THESIS_STACKING, 50);
+    expect(variations[0]).toEqual({ stacking: { ...THESIS_STACKING, disableMerge: false }, fitTolerance: 50 });
+    expect(variations).toHaveLength(10); // 3 over-stacking levels × 3 fit tolerances + merging off
+    expect(new Set(variations.map((v) => JSON.stringify(v))).size).toBe(10);
+    expect(variations.some((v) => v.stacking?.overhangLength === 0)).toBe(true);
+    expect(variations.some((v) => v.stacking?.overhangLength === 200)).toBe(true);
+    expect(variations.at(-1)?.stacking?.disableMerge).toBe(true);
+  });
+
+  it('leaves out duplicates when the base has nothing to scale', () => {
+    const variations = stackingVariations(); // all zeros: only "as is" and "merging off" differ
+    expect(variations).toHaveLength(2);
+    expect(variations[1]?.stacking?.disableMerge).toBe(true);
+  });
+
+  it('produces valid packings and reports which variation won', () => {
+    const variations = stackingVariations(THESIS_STACKING, 50);
+    const result = pack({ container: CONTAINER, items: MIXED, options: { attempts: 20, variations } });
+    expectValidPacking(result, CONTAINER, MIXED);
+    expect(result.variation).toBe(Math.floor(result.bestAttempt / 2) % variations.length);
+  });
+});
+
+describe('splitting attempts across workers', () => {
+  const dense: ItemInput[] = [
+    { id: 'a', length: 600, height: 400, width: 400, quantity: 300 },
+    { id: 'b', length: 400, height: 300, width: 300, quantity: 300 },
+  ];
+  const options = { variations: stackingVariations(THESIS_STACKING, 50), seed: 3 };
+
+  it('gives the same best result as one long run', () => {
+    const single = pack({ container: CONTAINER, items: dense, options: { ...options, attempts: 12 } });
+    const parts = [0, 1, 2].map((k) =>
+      pack({ container: CONTAINER, items: dense, options: { ...options, attempts: 4, firstAttempt: k, attemptStep: 3 } }),
+    );
+    const combined = parts.reduce(betterResult);
+    const strip = ({ elapsedMs: _e, ...r }: PackResult) => r;
+    expect(strip(combined)).toEqual(strip(single));
+    expect(combined.attempts).toBe(12);
+  });
+
+  it('compareResults prefers more volume, then a lower load', () => {
+    const base = pack({ container: CONTAINER, items: dense, options: { attempts: 1 } });
+    expect(compareResults({ ...base, usedVolume: base.usedVolume + 1 }, base)).toBeLessThan(0);
+    expect(compareResults({ ...base, usedHeight: base.usedHeight - 1 }, base)).toBeLessThan(0);
+    expect(compareResults(base, base)).toBe(0);
+  });
+
+  it('rejects bad attempt numbers', () => {
+    const input = { container: CONTAINER, items: dense };
+    expect(() => pack({ ...input, options: { firstAttempt: -1 } })).toThrow(/firstAttempt/);
+    expect(() => pack({ ...input, options: { attemptStep: 0 } })).toThrow(/attemptStep/);
   });
 });

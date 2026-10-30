@@ -40,6 +40,26 @@ export interface PackOptions {
   readonly fitTolerance?: number;
   /** Space merging and over-stacking settings. */
   readonly stacking?: Partial<StackConfig>;
+  /**
+   * Different stacking principles to try. Attempts take turns: each variation's `stacking` and
+   * `fitTolerance` replace the base ones above for its attempts. `stackingVariations()` builds a
+   * sensible set. Without variations, every attempt uses the base settings.
+   */
+  readonly variations?: readonly Variation[];
+  /**
+   * Number of the first attempt (default 0) and the step between attempts (default 1). Attempt
+   * `n` always packs the same way for the same input and seed, so workers can split the search:
+   * with 4 workers, worker `k` uses `firstAttempt: k, attemptStep: 4`, and combining their
+   * results with `betterResult` gives the same answer as one long run.
+   */
+  readonly firstAttempt?: number;
+  readonly attemptStep?: number;
+}
+
+/** One stacking principle for `PackOptions.variations`. */
+export interface Variation {
+  readonly stacking?: Partial<StackConfig>;
+  readonly fitTolerance?: number;
 }
 
 export interface PackInput {
@@ -78,6 +98,9 @@ export interface PackResult {
   readonly usedHeight: number;
   readonly attempts: number;
   readonly elapsedMs: number;
+  /** The attempt that produced this result, and the index of its variation (0 without variations). */
+  readonly bestAttempt: number;
+  readonly variation: number;
 }
 
 interface Item extends PackItem {
@@ -100,23 +123,79 @@ export function pack(input: PackInput): PackResult {
   checkUnique(items);
 
   const attempts = options.attempts ?? 50;
+  const firstAttempt = options.firstAttempt ?? 0;
+  const attemptStep = options.attemptStep ?? 1;
   if (!Number.isInteger(attempts) || attempts < 1) throw new RangeError('options.attempts must be a positive integer');
+  if (!Number.isInteger(firstAttempt) || firstAttempt < 0)
+    throw new RangeError('options.firstAttempt must be a non-negative integer');
+  if (!Number.isInteger(attemptStep) || attemptStep < 1) throw new RangeError('options.attemptStep must be a positive integer');
   const seed = options.seed ?? 1;
-  const fitTolerance = options.fitTolerance ?? 0;
-  const config: StackConfig = { ...DEFAULT_STACK_CONFIG, ...options.stacking };
   const deadline = options.timeLimitMs === undefined ? Infinity : now() + options.timeLimitMs;
 
+  // One empty bin and fit tolerance per variation (just the base settings without variations).
+  const size = { l: container.length, h: container.height, w: container.width };
+  const variants = (options.variations?.length ? options.variations : [{}]).map((v) => ({
+    empty: new Bin<Item>(size, { ...DEFAULT_STACK_CONFIG, ...options.stacking, ...v.stacking }),
+    fitTolerance: v.fitTolerance ?? options.fitTolerance ?? 0,
+  }));
+
   const started = now();
-  const empty = new Bin<Item>({ l: container.length, h: container.height, w: container.width }, config);
   const start = items.map((item) => ({ item, used: 0 }));
-  let best: Bin<Item> | undefined;
+  let best: { bin: Bin<Item>; attempt: number; variation: number } | undefined;
   let made = 0;
   while (made < attempts && (made === 0 || now() < deadline)) {
-    const { bin } = packOnce(empty, start, made, seededRandom(attemptSeed(seed, made)), fitTolerance);
-    if (!best || better(bin, best)) best = bin;
+    const attempt = firstAttempt + made * attemptStep;
+    // Consecutive attempt pairs share a variation, so each variation runs both fill strategies.
+    const variation = Math.floor(attempt / 2) % variants.length;
+    const { empty, fitTolerance } = variants[variation]!;
+    const { bin } = packOnce(empty, start, attempt, seededRandom(attemptSeed(seed, attempt)), fitTolerance);
+    if (!best || better(bin, best.bin)) best = { bin, attempt, variation };
     made++;
   }
-  return toResult(best!, items, made, now() - started);
+  return { ...toResult(best!.bin, items, made, now() - started), bestAttempt: best!.attempt, variation: best!.variation };
+}
+
+/**
+ * Compares two results of the same input: negative when `a` is better. More volume packed wins,
+ * then the lower load. Ties keep the earlier attempt, so combining is deterministic.
+ */
+export function compareResults(a: PackResult, b: PackResult): number {
+  if (a.usedVolume !== b.usedVolume) return b.usedVolume - a.usedVolume;
+  if (a.usedHeight !== b.usedHeight) return a.usedHeight - b.usedHeight;
+  return a.bestAttempt - b.bestAttempt;
+}
+
+/** The better of two results (see `compareResults`), with the attempt counts added up. */
+export function betterResult(a: PackResult, b: PackResult): PackResult {
+  const winner = compareResults(a, b) <= 0 ? a : b;
+  return { ...winner, attempts: a.attempts + b.attempts, elapsedMs: Math.max(a.elapsedMs, b.elapsedMs) };
+}
+
+/**
+ * A set of stacking principles around `base`, for `PackOptions.variations`: the base itself
+ * first, then no over-stacking and double over-stacking, each with no, normal and double fit
+ * tolerance, and finally merging switched off. `minSpaceSide` and `heightTolerance` stay as
+ * given, since they mostly affect speed. Duplicates (e.g. from a base of zeros) are left out.
+ */
+export function stackingVariations(base: Partial<StackConfig> = {}, fitTolerance = 0): Variation[] {
+  const b = { ...DEFAULT_STACK_CONFIG, ...base };
+  const scaled = (k: number): Partial<StackConfig> => ({
+    ...b,
+    overhangLength: b.overhangLength * k,
+    overhangWidth: b.overhangWidth * k,
+    narrowLength: b.narrowLength * k,
+    narrowWidth: b.narrowWidth * k,
+  });
+  const out: Variation[] = [];
+  for (const k of [1, 0, 2]) for (const f of [1, 0, 2]) out.push({ stacking: scaled(k), fitTolerance: fitTolerance * f });
+  out.push({ stacking: { ...b, disableMerge: true }, fitTolerance });
+  const seen = new Set<string>();
+  return out.filter((v) => {
+    const key = JSON.stringify(v);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** Expands a placement into its individual boxes, e.g. for drawing. */
@@ -181,7 +260,12 @@ function checkUnique(items: readonly Item[]): void {
   }
 }
 
-function toResult(bin: Bin<Item>, items: readonly Item[], attempts: number, elapsedMs: number): PackResult {
+function toResult(
+  bin: Bin<Item>,
+  items: readonly Item[],
+  attempts: number,
+  elapsedMs: number,
+): Omit<PackResult, 'bestAttempt' | 'variation'> {
   const placements = bin.cargo.map((c): Placement => ({
     id: c.ref.id,
     x: c.l_,
