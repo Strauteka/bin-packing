@@ -1,5 +1,7 @@
 # @strauteka/bin-packing
 
+[![npm](https://img.shields.io/npm/v/@strauteka/bin-packing)](https://www.npmjs.com/package/@strauteka/bin-packing) [![ci](https://github.com/Strauteka/bin-packing/actions/workflows/ci.yml/badge.svg)](https://github.com/Strauteka/bin-packing/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/@strauteka/bin-packing)](LICENSE)
+
 3D bin packing for container loading, in TypeScript with no dependencies. It runs in the browser, in a Web Worker or in Node.
 
 It has two parts:
