@@ -53,6 +53,13 @@ export interface PackOptions {
   /** Stop as soon as an attempt packs every box (default false: run all attempts). */
   readonly stopWhenAllPacked?: boolean;
   /**
+   * Rank attempts by priority first (default false): an attempt that packs more volume of
+   * priority 1 wins, then of priority 2, and so on; total volume and load height only break ties.
+   * Without it, the most total volume wins, even if a higher priority is left partly unpacked.
+   * The result then has `packedByPriority`, which `compareResults` uses too.
+   */
+  readonly rankByPriority?: boolean;
+  /**
    * Different stacking principles to try. Attempts take turns: each variation's `stacking` and
    * `fitTolerance` replace the base ones above for its attempts. `stackingVariations()` builds a
    * sensible set. Without variations, every attempt uses the base settings.
@@ -117,6 +124,8 @@ export interface PackResult {
   /** The attempt that produced this result, and the index of its variation (0 without variations). */
   readonly bestAttempt: number;
   readonly variation: number;
+  /** With `rankByPriority`: packed volume per priority, highest priority (lowest number) first. */
+  readonly packedByPriority?: number[];
 }
 
 interface Item extends PackItem {
@@ -157,6 +166,11 @@ export function pack(input: PackInput): PackResult {
   }));
   const total = items.reduce((sum, i) => sum + i.quantity, 0);
   const packedCount = (bin: Bin<Item>) => bin.cargo.reduce((sum, c) => sum + c.count, 0);
+  // Packed volume per priority level, highest priority first (only with rankByPriority).
+  const levels = [...new Set(items.map((i) => i.priority))].sort((x, y) => x - y);
+  const rank = options.rankByPriority
+    ? (bin: Bin<Item>) => levels.map((level) => bin.cargo.reduce((sum, c) => sum + (c.ref.priority === level ? c.l * c.h * c.w : 0), 0))
+    : undefined;
 
   const started = now();
   const start = items.map((item) => ({ item, used: 0 }));
@@ -168,11 +182,16 @@ export function pack(input: PackInput): PackResult {
     const variation = Math.floor(attempt / 2) % variants.length;
     const { empty, fitTolerance, mode } = variants[variation]!;
     const { bin } = packOnce(empty, start, attempt, seededRandom(attemptSeed(seed, attempt)), fitTolerance, mode);
-    if (!best || better(bin, best.bin)) best = { bin, attempt, variation };
+    if (!best || better(bin, best.bin, rank)) best = { bin, attempt, variation };
     made++;
     if (options.stopWhenAllPacked && packedCount(best.bin) === total) break;
   }
-  return { ...toResult(best!.bin, items, made, now() - started), bestAttempt: best!.attempt, variation: best!.variation };
+  return {
+    ...toResult(best!.bin, items, made, now() - started),
+    bestAttempt: best!.attempt,
+    variation: best!.variation,
+    ...(rank && { packedByPriority: rank(best!.bin) }),
+  };
 }
 
 /**
@@ -180,6 +199,10 @@ export function pack(input: PackInput): PackResult {
  * then the lower load. Ties keep the earlier attempt, so combining is deterministic.
  */
 export function compareResults(a: PackResult, b: PackResult): number {
+  if (a.packedByPriority && b.packedByPriority) {
+    const byPriority = compareVolumes(a.packedByPriority, b.packedByPriority);
+    if (byPriority !== 0) return byPriority;
+  }
   if (a.usedVolume !== b.usedVolume) return b.usedVolume - a.usedVolume;
   if (a.usedHeight !== b.usedHeight) return a.usedHeight - b.usedHeight;
   return a.bestAttempt - b.bestAttempt;
@@ -246,9 +269,22 @@ export function boxes(placement: Placement): Array<Size3 & { id: string; x: numb
   return out;
 }
 
-function better(a: Bin, b: Bin): boolean {
+function better(a: Bin<Item>, b: Bin<Item>, rank?: (bin: Bin<Item>) => number[]): boolean {
+  if (rank) {
+    const byPriority = compareVolumes(rank(a), rank(b));
+    if (byPriority !== 0) return byPriority < 0;
+  }
   if (a.usedVolume !== b.usedVolume) return a.usedVolume > b.usedVolume;
   return a.usedHeight < b.usedHeight;
+}
+
+/** Negative when `a` packs more of the first priority where they differ. */
+function compareVolumes(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (b[i] ?? 0) - (a[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
 }
 
 function toItem(input: ItemInput, index: number): Item {

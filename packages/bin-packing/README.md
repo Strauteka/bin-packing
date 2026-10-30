@@ -53,6 +53,7 @@ Each placement is a block of `count.length × count.height × count.width` ident
 | `layers` | `false` | Build only one-box-high blocks, so the container fills floor by floor and the load stays low |
 | `tallestFirst` | `false` | Prefer the tallest box in its tallest allowed orientation (stands long boxes on end when allowed); best as one variation |
 | `stopWhenAllPacked` | `false` | Stop at the first attempt that packs every box |
+| `rankByPriority` | `false` | Rank attempts by priority first: more volume of priority 1 wins, then priority 2…; total volume only breaks ties. The result gets `packedByPriority`, and `compareResults` respects it |
 | `variations` | none | Stacking principles that attempts take turns with, see below |
 | `firstAttempt`, `attemptStep` | `0`, `1` | Which attempts to run, for splitting the search across workers |
 

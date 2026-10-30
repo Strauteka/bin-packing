@@ -447,3 +447,36 @@ describe('loading order', () => {
     expect(loadingSequence([top, base]).map((b) => b.id)).toEqual(['base', 'top']);
   });
 });
+
+describe('rankByPriority', () => {
+  // Priority 1: 6 cubes of 500 that fill exactly 3/4 of a 1000³ container, but only if they go in
+  // first and well; priority 2: a slab that, packed greedily, takes a lot of room.
+  const container = { length: 1000, height: 1000, width: 1000 };
+  const items: ItemInput[] = [
+    { id: 'must', length: 500, height: 500, width: 500, quantity: 8, priority: 1 },
+    { id: 'filler', length: 1000, height: 100, width: 1000, quantity: 10, priority: 2 },
+  ];
+
+  it('adds packedByPriority only when asked, and leaves default results alone', () => {
+    const plain = pack({ container, items, options: { attempts: 4 } });
+    expect(plain.packedByPriority).toBeUndefined();
+    const ranked = pack({ container, items, options: { attempts: 4, rankByPriority: true } });
+    expect(ranked.packedByPriority).toHaveLength(2);
+    expect(ranked.packedByPriority![0]! + ranked.packedByPriority![1]!).toBe(ranked.usedVolume);
+  });
+
+  it('compareResults prefers more of the first priority over more total volume', () => {
+    const base = pack({ container, items, options: { attempts: 1, rankByPriority: true } });
+    const moreFirst = { ...base, usedVolume: 100, packedByPriority: [100, 0] };
+    const moreTotal = { ...base, usedVolume: 900, packedByPriority: [50, 850] };
+    expect(compareResults(moreFirst, moreTotal)).toBeLessThan(0);
+    // Without priority volumes on both sides, total volume decides as before.
+    const { packedByPriority: _p, ...plainTotal } = moreTotal;
+    expect(compareResults(moreFirst, plainTotal as PackResult)).toBeGreaterThan(0);
+  });
+
+  it('picks the attempt that packs the first priority completely', () => {
+    const ranked = pack({ container, items, options: { attempts: 20, rankByPriority: true } });
+    expect(ranked.packed.find((p) => p.id === 'must')?.quantity).toBe(8);
+  });
+});
