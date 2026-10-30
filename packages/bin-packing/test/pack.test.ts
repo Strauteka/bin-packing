@@ -4,11 +4,14 @@ import {
   betterResult,
   boxes,
   compareResults,
+  loadingOrder,
+  loadingSequence,
   pack,
   rotationsFor,
   stackingVariations,
   type ItemInput,
   type PackResult,
+  type Placement,
 } from '../src/index.js';
 
 // The thesis demo's container (mm) and stacking settings.
@@ -359,3 +362,51 @@ describe('stopWhenAllPacked', () => {
     expect(pack({ container, items, options: { attempts: 20, stopWhenAllPacked: true } }).attempts).toBe(20);
   });
 });
+
+describe('loading order', () => {
+  const result = pack({ container: CONTAINER, items: MIXED, options: { attempts: 5, stacking: THESIS_STACKING, fitTolerance: 50 } });
+  const order = loadingOrder(result.placements);
+  const restsOn = (b: Placement, a: Placement) =>
+    a.y + a.height === b.y &&
+    Math.min(a.x + a.length, b.x + b.length) > Math.max(a.x, b.x) &&
+    Math.min(a.z + a.width, b.z + b.width) > Math.max(a.z, b.z);
+
+  it('keeps every block', () => {
+    expect([...order].sort(byKey)).toEqual([...result.placements].sort(byKey));
+  });
+
+  it('never loads a block before the blocks it stands on', () => {
+    order.forEach((b, i) => {
+      for (const a of result.placements) if (restsOn(b, a)) expect(order.indexOf(a), `${b.id} before its support`).toBeLessThan(i);
+    });
+    expect(order[0]!.y).toBe(0);
+  });
+
+  it('loads a block that overhangs towards the back after the block it stands on', () => {
+    const block = (id: string, x: number, y: number, length: number): Placement => ({
+      id, x, y, z: 0, length, height: 300, width: 400, rotation: 'lhw',
+      box: { length, height: 300, width: 400 }, count: { length: 1, height: 1, width: 1 }, quantity: 1,
+    });
+    const base = block('base', 100, 0, 600); // on the floor, starting 100 from the back
+    const top = block('top', 0, 300, 600); // stands on base, but sticks out 100 further back
+    expect(loadingOrder([top, base]).map((p) => p.id)).toEqual(['base', 'top']);
+  });
+
+  it('starts at the back of the container', () => {
+    expect(order[0]!.x).toBe(Math.min(...result.placements.map((p) => p.x)));
+  });
+
+  it('lists every box once, in block order, each box after the boxes below it', () => {
+    const sequence = loadingSequence(result.placements);
+    expect(sequence).toHaveLength(result.placements.reduce((n, p) => n + p.quantity, 0));
+    expect(sequence.map((b) => b.step)).toEqual([...sequence.map((b) => b.step)].sort((a, b) => a - b));
+    sequence.forEach((b, i) => {
+      if (b.y === 0) return;
+      const support = sequence.findIndex((a) => a.y + a.height === b.y && a.x < b.x + b.length && b.x < a.x + a.length && a.z < b.z + b.width && b.z < a.z + a.width);
+      expect(support).toBeGreaterThanOrEqual(0);
+      expect(support).toBeLessThan(i);
+    });
+  });
+});
+
+const byKey = (a: Placement, b: Placement) => a.x - b.x || a.y - b.y || a.z - b.z;

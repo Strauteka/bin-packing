@@ -103,6 +103,10 @@ best = best ? betterResult(best, part) : part;
 
 `compareResults(a, b)` gives the order: more volume packed first, then the lower load.
 
+## Loading order
+
+`loadingOrder(result.placements)` sorts the blocks into an order you can actually load them: from the back of the container (x = 0) towards the doors, and never before the blocks they stand on, even when a block overhangs further back than its support. `loadingSequence(result.placements)` gives every single box in that order, each with the `step` (block) it belongs to, for example to animate the loading or print a plan.
+
 ## How it works
 
 1. The container starts as one empty space.
