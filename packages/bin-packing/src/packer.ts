@@ -25,8 +25,7 @@ export interface Tracked<T extends PackItem> {
  * bottom-rear-left, odd attempts at the top-front-right. `fitTolerance` is how close to a
  * space's side counts as a snug fit when choosing blocks (the thesis used 50 mm).
  *
- * With `layers`, blocks are always one box high, so the container fills floor by floor and
- * the load stays low. Without it, blocks may also be columns, as in the thesis.
+ * `mode` changes how blocks are chosen (see `PackMode`); by default the packer works as in the thesis.
  */
 export function packOnce<T extends PackItem>(
   bin: Bin<T>,
@@ -34,7 +33,7 @@ export function packOnce<T extends PackItem>(
   strategy: number,
   random: Random,
   fitTolerance: number,
-  layers = false,
+  mode: PackMode = {},
 ): { bin: Bin<T>; items: Tracked<T>[] } {
   const priorities = [...new Set(items.map((t) => t.item.priority))].sort((a, b) => a - b);
   let tracked = [...items];
@@ -42,7 +41,7 @@ export function packOnce<T extends PackItem>(
   for (const priority of priorities) {
     for (;;) {
       const candidates = tracked.filter((t) => t.item.priority === priority && t.item.quantity > t.used);
-      const cargo = findCargo(current.spaces, candidates, strategy, random, fitTolerance, layers);
+      const cargo = findCargo(current.spaces, candidates, strategy, random, fitTolerance, mode);
       if (!cargo) break;
       current = current.add(cargo);
       // The placed type moves to the end of the list, as in the thesis (it affects tie-breaking).
@@ -61,10 +60,10 @@ function findCargo<T extends PackItem>(
   strategy: number,
   random: Random,
   fitTolerance: number,
-  layers: boolean,
+  mode: PackMode,
 ): Cargo<T> | undefined {
   const space = selectSpace(spaces, candidates, strategy);
-  return space && bestCargo(space, candidates, random, fitTolerance, layers);
+  return space && bestCargo(space, candidates, random, fitTolerance, mode);
 }
 
 /** The empty space to fill next: the lowest (or, for odd strategies, highest) one any box fits. */
@@ -81,13 +80,17 @@ function selectSpace<T extends PackItem>(
   );
 }
 
-/** The block that leaves the snuggest gaps in `space`: most sides within `fitTolerance`, then smallest gaps. */
+/**
+ * The block that leaves the snuggest gaps in `space`: most sides within `fitTolerance`, then
+ * smallest gaps. In layers mode only the floor (length and width) counts, since a layer is one
+ * box high anyway. With `tallestFirst`, taller boxes win before anything else.
+ */
 function bestCargo<T extends PackItem>(
   space: Space,
   candidates: readonly Tracked<T>[],
   random: Random,
   fitTolerance: number,
-  layers: boolean,
+  { layers = false, tallestFirst = false }: PackMode,
 ): Cargo<T> | undefined {
   const builders = layers ? [buildA, buildB] : [buildA, buildB, buildC];
   const blocks = candidates.flatMap((t) =>
@@ -98,17 +101,24 @@ function bestCargo<T extends PackItem>(
         return builders.map((build) => build(space, t.item, left, r, random));
       }),
   );
-  if (layers)
-    // Layers: tallest boxes first, so they stand on the floor and nothing tall ends up on top;
-    // then fill the floor of the space snugly.
-    return minBy(blocks, (c) => {
-      const gaps = [space.l - c.l, space.w - c.w].sort((a, b) => a - b);
-      return [-c.unit.h, -gaps.filter((g) => g <= fitTolerance).length, ...gaps];
-    });
   return minBy(blocks, (c) => {
-    const gaps = Object.values(subtract(space, c)).sort((a, b) => a - b);
-    return [-gaps.filter((g) => g <= fitTolerance).length, ...gaps];
+    const left = subtract(space, c);
+    const gaps = (layers ? [left.l, left.w] : [left.l, left.h, left.w]).sort((a, b) => a - b);
+    const snug = [-gaps.filter((g) => g <= fitTolerance).length, ...gaps];
+    return tallestFirst ? [-c.unit.h, ...snug] : snug;
   });
+}
+
+/** How one attempt chooses its blocks. */
+export interface PackMode {
+  /** Only one-box-high blocks, so the container fills floor by floor (default false). */
+  readonly layers?: boolean;
+  /**
+   * Prefer the tallest box, in its tallest allowed orientation, before the snuggest fit (default
+   * false). Puts tall boxes on the floor first, which can lower the load, but it also stands long
+   * boxes on end when they're allowed to, so it's best tried as one variation among others.
+   */
+  readonly tallestFirst?: boolean;
 }
 
 type Build = <T extends PackItem>(space: Space, item: T, left: number, r: Rotation, random: Random) => Cargo<T>;

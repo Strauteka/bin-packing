@@ -50,7 +50,9 @@ Each placement is a block of `count.length × count.height × count.width` ident
 | `seed` | `1` | The same seed and input always give the same result |
 | `fitTolerance` | `0` | Gaps up to this size count as a snug fit when choosing blocks (the thesis used 50 mm) |
 | `stacking` | all `0` | Space merging and over-stacking, passed to the core. See [stacking settings](https://github.com/Strauteka/bin-packing/tree/main/packages/space-utilization#stacking-settings) |
-| `layers` | `false` | Build only one-box-high blocks, tallest boxes first, so the container fills floor by floor and the load stays low |
+| `layers` | `false` | Build only one-box-high blocks, so the container fills floor by floor and the load stays low |
+| `tallestFirst` | `false` | Prefer the tallest box in its tallest allowed orientation (stands long boxes on end when allowed); best as one variation |
+| `stopWhenAllPacked` | `false` | Stop at the first attempt that packs every box |
 | `variations` | none | Stacking principles that attempts take turns with, see below |
 | `firstAttempt`, `attemptStep` | `0`, `1` | Which attempts to run, for splitting the search across workers |
 
@@ -69,15 +71,15 @@ Per item:
 
 ## Variations: try several stacking principles
 
-The same strategy packs differently with different stacking settings, so the search can vary them too. `stackingVariations(base, fitTolerance)` builds 20 principles around your settings:
+The same strategy packs differently with different stacking settings, so the search can vary them too. `stackingVariations(base, fitTolerance)` builds 30 principles around your settings:
 - no, normal and double over-stacking,
 - each with no, normal and double fit tolerance,
 - plus merging switched off,
-- all in both block modes: columns (as in the thesis) and layers.
+- all in three block modes, layers first: layers, layers with the tallest boxes first, and columns (as in the thesis).
 
 Attempts take turns with them, and the result's `variation` says which one won.
 
-When everything fits, the volume is the same for every attempt, so the lowest load wins. Layers mode often finds it. On 8 random loads like the thesis demo's, layers gave the lower load in 5 (for example 1698 mm instead of 2262 mm) and columns in 3, so it pays to try both.
+When everything fits, the volume is the same for every attempt, so the lowest load wins. Layers usually pack everything within the first one or two attempts. Use `stopWhenAllPacked` to stop there, or keep searching for a lower load: on random thesis-style loads, the full search came out 150–530 mm lower than the first full load.
 
 ```ts
 import { pack, stackingVariations } from '@strauteka/bin-packing';

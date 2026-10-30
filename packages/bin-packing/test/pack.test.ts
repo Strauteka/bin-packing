@@ -219,20 +219,33 @@ describe('pack with explicit rotations', () => {
 describe('variations', () => {
   it('builds distinct stacking principles around the base, base first', () => {
     const variations = stackingVariations(THESIS_STACKING, 50);
-    expect(variations[0]).toEqual({ stacking: { ...THESIS_STACKING, disableMerge: false }, fitTolerance: 50, layers: false });
-    // (3 over-stacking levels × 3 fit tolerances + merging off) × columns and layers
-    expect(variations).toHaveLength(20);
-    expect(new Set(variations.map((v) => JSON.stringify(v))).size).toBe(20);
-    expect(variations.filter((v) => v.layers)).toHaveLength(10);
+    expect(variations[0]).toEqual({
+      stacking: { ...THESIS_STACKING, disableMerge: false },
+      fitTolerance: 50,
+      layers: true,
+      tallestFirst: false,
+    });
+    // (3 over-stacking levels × 3 fit tolerances + merging off) × layers, layers tallest-first, columns
+    expect(variations).toHaveLength(30);
+    expect(new Set(variations.map((v) => JSON.stringify(v))).size).toBe(30);
+    expect(variations.slice(0, 20).every((v) => v.layers)).toBe(true); // layers come first
+    expect(variations.filter((v) => v.tallestFirst)).toHaveLength(10);
     expect(variations.some((v) => v.stacking?.overhangLength === 0)).toBe(true);
     expect(variations.some((v) => v.stacking?.overhangLength === 200)).toBe(true);
-    expect(variations.filter((v) => v.stacking?.disableMerge)).toHaveLength(2);
+    expect(variations.filter((v) => v.stacking?.disableMerge)).toHaveLength(3);
   });
 
   it('leaves out duplicates when the base has nothing to scale', () => {
-    const variations = stackingVariations(); // all zeros: only "as is" and "merging off" differ, × layers
-    expect(variations).toHaveLength(4);
-    expect(variations.map((v) => [v.stacking?.disableMerge, v.layers])).toEqual([[false, false], [true, false], [false, true], [true, true]]);
+    const variations = stackingVariations(); // all zeros: only "as is" and "merging off" differ, × 3 modes
+    expect(variations).toHaveLength(6);
+    expect(variations.map((v) => [v.stacking?.disableMerge, v.layers, v.tallestFirst])).toEqual([
+      [false, true, false],
+      [true, true, false],
+      [false, true, true],
+      [true, true, true],
+      [false, false, false],
+      [true, false, false],
+    ]);
   });
 
   it('produces valid packings and reports which variation won', () => {
@@ -313,12 +326,36 @@ describe('layers mode', () => {
       { id: 'tall', length: 400, height: 900, width: 400, quantity: 6, rotations: 'upright' },
       { id: 'mid', length: 300, height: 300, width: 300, quantity: 30, rotations: 'upright' },
     ];
-    const result = pack({ container: CONTAINER, items: load, options: { attempts: 1, layers: true } });
+    const result = pack({ container: CONTAINER, items: load, options: { attempts: 1, layers: true, tallestFirst: true } });
     expect(result.placements[0]).toMatchObject({ id: 'tall', x: 0, y: 0, z: 0 });
+  });
+
+  it("doesn't stand long boxes on end unless tallest-first is asked for", () => {
+    const long: ItemInput[] = [{ id: 'long', length: 1200, height: 250, width: 300, quantity: 40 }];
+    const standing = (options: object) =>
+      pack({ container: CONTAINER, items: long, options: { attempts: 6, ...options } }).placements.filter((p) => p.box.height === 1200);
+    expect(standing({ layers: true })).toEqual([]);
+    expect(standing({ layers: true, tallestFirst: true }).length).toBeGreaterThan(0);
   });
 
   it('a variation can switch layers on', () => {
     const result = pack({ container: CONTAINER, items, options: { attempts: 2, variations: [{ layers: true }] } });
     expect(result.placements.every((p) => p.count.height === 1)).toBe(true);
+  });
+});
+
+describe('stopWhenAllPacked', () => {
+  it('stops at the first attempt that packs every box', () => {
+    const items: ItemInput[] = [{ id: 'cube', length: 500, height: 500, width: 500, quantity: 8 }];
+    const container = { length: 1000, height: 1000, width: 1000 };
+    const result = pack({ container, items, options: { attempts: 500, stopWhenAllPacked: true } });
+    expect(result.unpacked).toEqual([]);
+    expect(result.attempts).toBe(1);
+  });
+
+  it('keeps going when not everything fits', () => {
+    const items: ItemInput[] = [{ id: 'cube', length: 500, height: 500, width: 500, quantity: 9 }];
+    const container = { length: 1000, height: 1000, width: 1000 };
+    expect(pack({ container, items, options: { attempts: 20, stopWhenAllPacked: true } }).attempts).toBe(20);
   });
 });

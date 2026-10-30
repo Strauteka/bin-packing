@@ -46,6 +46,13 @@ export interface PackOptions {
    */
   readonly layers?: boolean;
   /**
+   * Prefer the tallest box, in its tallest allowed orientation, before the snuggest fit
+   * (default false). Can lower the load, but stands long boxes on end when they may point up.
+   */
+  readonly tallestFirst?: boolean;
+  /** Stop as soon as an attempt packs every box (default false: run all attempts). */
+  readonly stopWhenAllPacked?: boolean;
+  /**
    * Different stacking principles to try. Attempts take turns: each variation's `stacking` and
    * `fitTolerance` replace the base ones above for its attempts. `stackingVariations()` builds a
    * sensible set. Without variations, every attempt uses the base settings.
@@ -67,6 +74,8 @@ export interface Variation {
   readonly fitTolerance?: number;
   /** Build only one-box-high blocks, filling floor by floor (see `PackOptions.layers`). */
   readonly layers?: boolean;
+  /** Prefer the tallest box first (see `PackOptions.tallestFirst`). */
+  readonly tallestFirst?: boolean;
 }
 
 export interface PackInput {
@@ -144,8 +153,10 @@ export function pack(input: PackInput): PackResult {
   const variants = (options.variations?.length ? options.variations : [{}]).map((v) => ({
     empty: new Bin<Item>(size, { ...DEFAULT_STACK_CONFIG, ...options.stacking, ...v.stacking }),
     fitTolerance: v.fitTolerance ?? options.fitTolerance ?? 0,
-    layers: v.layers ?? options.layers ?? false,
+    mode: { layers: v.layers ?? options.layers ?? false, tallestFirst: v.tallestFirst ?? options.tallestFirst ?? false },
   }));
+  const total = items.reduce((sum, i) => sum + i.quantity, 0);
+  const packedCount = (bin: Bin<Item>) => bin.cargo.reduce((sum, c) => sum + c.count, 0);
 
   const started = now();
   const start = items.map((item) => ({ item, used: 0 }));
@@ -155,10 +166,11 @@ export function pack(input: PackInput): PackResult {
     const attempt = firstAttempt + made * attemptStep;
     // Consecutive attempt pairs share a variation, so each variation runs both fill strategies.
     const variation = Math.floor(attempt / 2) % variants.length;
-    const { empty, fitTolerance, layers } = variants[variation]!;
-    const { bin } = packOnce(empty, start, attempt, seededRandom(attemptSeed(seed, attempt)), fitTolerance, layers);
+    const { empty, fitTolerance, mode } = variants[variation]!;
+    const { bin } = packOnce(empty, start, attempt, seededRandom(attemptSeed(seed, attempt)), fitTolerance, mode);
     if (!best || better(bin, best.bin)) best = { bin, attempt, variation };
     made++;
+    if (options.stopWhenAllPacked && packedCount(best.bin) === total) break;
   }
   return { ...toResult(best!.bin, items, made, now() - started), bestAttempt: best!.attempt, variation: best!.variation };
 }
@@ -182,8 +194,8 @@ export function betterResult(a: PackResult, b: PackResult): PackResult {
 /**
  * A set of stacking principles around `base`, for `PackOptions.variations`: the base itself
  * first, then no over-stacking and double over-stacking, each with no, normal and double fit
- * tolerance, and merging switched off. All of these come twice: with column blocks (as in the
- * thesis) and in layers mode, which keeps the load low. `minSpaceSide` and `heightTolerance` stay as
+ * tolerance, and merging switched off. All of these come three times, layers first: in layers
+ * mode, in layers mode with tallest boxes first, and with column blocks as in the thesis. `minSpaceSide` and `heightTolerance` stay as
  * given, since they mostly affect speed. Duplicates (e.g. from a base of zeros) are left out.
  */
 export function stackingVariations(base: Partial<StackConfig> = {}, fitTolerance = 0): Variation[] {
@@ -196,10 +208,15 @@ export function stackingVariations(base: Partial<StackConfig> = {}, fitTolerance
     narrowWidth: b.narrowWidth * k,
   });
   const out: Variation[] = [];
-  for (const layers of [false, true]) {
+  const modes = [
+    { layers: true, tallestFirst: false },
+    { layers: true, tallestFirst: true },
+    { layers: false, tallestFirst: false },
+  ];
+  for (const mode of modes) {
     for (const k of [1, 0, 2])
-      for (const f of [1, 0, 2]) out.push({ stacking: scaled(k), fitTolerance: fitTolerance * f, layers });
-    out.push({ stacking: { ...b, disableMerge: true }, fitTolerance, layers });
+      for (const f of [1, 0, 2]) out.push({ stacking: scaled(k), fitTolerance: fitTolerance * f, ...mode });
+    out.push({ stacking: { ...b, disableMerge: true }, fitTolerance, ...mode });
   }
   const seen = new Set<string>();
   return out.filter((v) => {

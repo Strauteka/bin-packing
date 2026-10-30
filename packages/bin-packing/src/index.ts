@@ -6,7 +6,7 @@ export type { VerticalSides } from './rotations.js';
 
 // Lower level: one packing attempt on a Bin, to combine with your own strategy.
 export { packOnce } from './packer.js';
-export type { PackItem, Tracked } from './packer.js';
+export type { PackItem, PackMode, Tracked } from './packer.js';
 export { seededRandom } from './random.js';
 export type { Random } from './random.js';
 
