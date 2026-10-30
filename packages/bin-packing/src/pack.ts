@@ -20,8 +20,11 @@ export interface ItemInput extends Size3 {
   /** Your identifier for this box type; must be unique. */
   readonly id: string;
   readonly quantity: number;
-  /** `'all'` (default) allows all six orientations; `'upright'` keeps the height vertical. */
-  readonly rotations?: 'all' | 'upright';
+  /**
+   * Allowed orientations: `'all'` (default, all six), `'upright'` (height stays vertical), or an
+   * explicit list, e.g. from `rotationsFor({ length: true, height: true })`.
+   */
+  readonly rotations?: 'all' | 'upright' | readonly Rotation[];
   /** Lower numbers are packed first (default 1). */
   readonly priority?: number;
 }
@@ -150,9 +153,19 @@ function toItem(input: ItemInput, index: number): Item {
     id: input.id,
     size: { l: input.length, h: input.height, w: input.width },
     quantity: input.quantity,
-    rotations: input.rotations === 'upright' ? UPRIGHT_ROTATIONS : ROTATIONS,
+    rotations: toRotations(input.rotations, where),
     priority: input.priority ?? 1,
   };
+}
+
+function toRotations(rotations: ItemInput['rotations'], where: string): readonly Rotation[] {
+  if (rotations === undefined || rotations === 'all') return ROTATIONS;
+  if (rotations === 'upright') return UPRIGHT_ROTATIONS;
+  if (!Array.isArray(rotations) || rotations.length === 0)
+    throw new RangeError(`${where}.rotations must allow at least one orientation`);
+  for (const r of rotations)
+    if (!ROTATIONS.includes(r)) throw new RangeError(`${where}.rotations: unknown rotation "${String(r)}"`);
+  return ROTATIONS.filter((r) => rotations.includes(r)); // canonical order, no duplicates
 }
 
 function checkSize(where: string, s: Size3): void {

@@ -1,6 +1,6 @@
 {
   "name": "@strauteka/bin-packing",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Randomised 3D bin packing for container loading, built on @strauteka/space-utilization. TypeScript port of a master's thesis algorithm.",
   "keywords": [
     "bin-packing",
@@ -15,7 +15,7 @@
     "@strauteka/space-utilization": "^0.1.0"
   },
   "license": "Apache-2.0",
-  "author": "Jānis Strautiņš (https://janisstrautins.lv)",
+  "author": "J\u0101nis Strauti\u0146\u0161 (https://janisstrautins.lv)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Strauteka/bin-packing.git",

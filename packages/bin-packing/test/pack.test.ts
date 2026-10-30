@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Space } from '@strauteka/space-utilization';
-import { boxes, pack, type ItemInput, type PackResult } from '../src/index.js';
+import { Space, rotate } from '@strauteka/space-utilization';
+import { boxes, pack, rotationsFor, type ItemInput, type PackResult } from '../src/index.js';
 
 // The thesis demo's container (mm) and stacking settings.
 const CONTAINER = { length: 5900, height: 2380, width: 2345 };
@@ -164,5 +164,45 @@ describe('boxes', () => {
     expect(all).toHaveLength(8);
     const spaces = all.map(asSpace);
     spaces.forEach((a, i) => spaces.slice(i + 1).forEach((b) => expect(a.overlap(b)).toBe(false)));
+  });
+});
+
+describe('rotationsFor', () => {
+  it('matches the thesis allowL / allowH / allowW rule', () => {
+    expect(rotationsFor({ length: true })).toEqual(['wlh', 'hlw']);
+    expect(rotationsFor({ height: true })).toEqual(['lhw', 'whl']);
+    expect(rotationsFor({ width: true })).toEqual(['hwl', 'lwh']);
+    expect(rotationsFor({ length: true, height: true, width: true })).toEqual(['lhw', 'whl', 'wlh', 'hlw', 'hwl', 'lwh']);
+    expect(rotationsFor({})).toEqual([]);
+  });
+
+  it('every rotation keeps the chosen side vertical', () => {
+    const item = { length: 300, height: 200, width: 100 };
+    for (const [side, size] of [['length', 300], ['height', 200], ['width', 100]] as const)
+      for (const r of rotationsFor({ [side]: true }))
+        expect(rotate({ l: item.length, h: item.height, w: item.width }, r).h).toBe(size);
+  });
+});
+
+describe('pack with explicit rotations', () => {
+  it('only uses the allowed orientations', () => {
+    const items: ItemInput[] = [
+      { id: 'lying', length: 600, height: 200, width: 400, quantity: 30, rotations: rotationsFor({ length: true }) },
+      { id: 'side', length: 500, height: 300, width: 250, quantity: 30, rotations: rotationsFor({ width: true, height: true }) },
+    ];
+    const result = pack({ container: CONTAINER, items, options: { attempts: 5 } });
+    expectValidPacking(result, CONTAINER, items);
+    for (const p of result.placements) {
+      if (p.id === 'lying') expect(p.box.height).toBe(600);
+      else expect([250, 300]).toContain(p.box.height);
+    }
+    expect(result.packed.length).toBe(2);
+  });
+
+  it('rejects an empty or unknown rotation list', () => {
+    const container = { length: 10, height: 10, width: 10 };
+    const box = { id: 'a', length: 1, height: 1, width: 1, quantity: 1 };
+    expect(() => pack({ container, items: [{ ...box, rotations: [] }] })).toThrow(/at least one orientation/);
+    expect(() => pack({ container, items: [{ ...box, rotations: ['xyz' as never] }] })).toThrow(/unknown rotation/);
   });
 });

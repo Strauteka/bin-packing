@@ -1,6 +1,8 @@
 // 3D bin packing: the thesis' randomised packer, built on @strauteka/space-utilization.
 export { pack, boxes } from './pack.js';
 export type { PackInput, PackOptions, PackResult, ItemInput, Placement, ItemCount, Size3 } from './pack.js';
+export { rotationsFor } from './rotations.js';
+export type { VerticalSides } from './rotations.js';
 
 // Lower level: one packing attempt on a Bin, to combine with your own strategy.
 export { packOnce } from './packer.js';

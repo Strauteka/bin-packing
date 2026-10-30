@@ -51,7 +51,18 @@ Each placement is a block of `count.length × count.height × count.width` ident
 | `fitTolerance` | `0` | Gaps up to this size count as a snug fit when choosing blocks (the thesis used 50 mm) |
 | `stacking` | all `0` | Space merging and over-stacking, passed to the core. See [stacking settings](https://github.com/Strauteka/bin-packing/tree/main/packages/space-utilization#stacking-settings) |
 
-Per item, `rotations: 'upright'` keeps the height vertical ("this side up"), and `priority` (default 1) packs lower numbers first.
+Per item:
+
+- `rotations` sets the allowed orientations: `'all'` (default, all six), `'upright'` (height stays vertical, "this side up"), or a list. `rotationsFor()` builds the list from which sides may point up, as in the thesis (`allowL`, `allowH`, `allowW`):
+
+  ```ts
+  import { rotationsFor } from '@strauteka/bin-packing';
+
+  rotationsFor({ height: true }); // ['lhw', 'whl']: upright, may turn around
+  rotationsFor({ length: true, width: true }); // may lie on its side, not stand upright
+  ```
+
+- `priority` (default 1): lower numbers are packed first.
 
 ## How it works
 
