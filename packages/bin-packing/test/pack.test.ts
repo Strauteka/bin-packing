@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Space, boxes, pack, type ItemInput, type PackResult } from '../src/index.js';
+import { Space } from '@strauteka/space-utilization';
+import { boxes, pack, type ItemInput, type PackResult } from '../src/index.js';
 
 // The thesis demo's container (mm) and stacking settings.
 const CONTAINER = { length: 5900, height: 2380, width: 2345 };

@@ -1,0 +1,5 @@
+@strauteka/bin-packing
+Copyright 2026 Jānis Strautiņš
+
+TypeScript port of 3d-bin-space-utilization (Java), also by Jānis Strautiņš:
+https://github.com/Strauteka/3d-bin-space-utilization

@@ -1,8 +1,5 @@
-import { Bin } from './bin.js';
-import { Cargo } from './cargo.js';
-import { fits, rotate, subtract, type Dim, type Rotation } from './dimension.js';
+import { Bin, Cargo, fits, rotate, subtract, type Dim, type Rotation, type Space } from '@strauteka/space-utilization';
 import type { Random } from './random.js';
-import type { Space } from './space.js';
 
 /** A box type with everything the packer needs. */
 export interface PackItem {

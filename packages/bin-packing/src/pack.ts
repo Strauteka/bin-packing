@@ -1,8 +1,13 @@
-import { Bin } from './bin.js';
-import { ROTATIONS, UPRIGHT_ROTATIONS, type Rotation } from './dimension.js';
+import {
+  Bin,
+  DEFAULT_STACK_CONFIG,
+  ROTATIONS,
+  UPRIGHT_ROTATIONS,
+  type Rotation,
+  type StackConfig,
+} from '@strauteka/space-utilization';
 import { packOnce, type PackItem } from './packer.js';
 import { attemptSeed, seededRandom } from './random.js';
-import { DEFAULT_STACK_CONFIG, type StackConfig } from './stack-config.js';
 
 /** Length runs along x, height is vertical (y), width runs along z. */
 export interface Size3 {

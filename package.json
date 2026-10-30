@@ -1,49 +1,21 @@
 {
-  "name": "@strauteka/bin-packing",
-  "version": "0.1.1",
-  "description": "3D bin packing for container loading: an empty-space distribution core and a randomised packer. TypeScript port of a master's thesis algorithm.",
-  "keywords": [
-    "bin-packing",
-    "3d-bin-packing",
-    "container-loading",
-    "packing",
-    "cargo",
-    "logistics"
-  ],
+  "name": "bin-packing-monorepo",
+  "private": true,
+  "description": "Workspace for @strauteka/space-utilization and @strauteka/bin-packing",
   "license": "Apache-2.0",
   "author": "Jānis Strautiņš (https://janisstrautins.lv)",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Strauteka/bin-packing.git"
-  },
-  "homepage": "https://github.com/Strauteka/bin-packing#readme",
-  "bugs": "https://github.com/Strauteka/bin-packing/issues",
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "NOTICE"
+  "workspaces": [
+    "packages/space-utilization",
+    "packages/bin-packing"
   ],
-  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "verify": "npm run typecheck && npm test && npm run build",
-    "prepublishOnly": "npm run verify"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "verify": "npm run verify -w packages/space-utilization && npm run verify -w packages/bin-packing",
+    "build": "npm run build -w packages/space-utilization && npm run build -w packages/bin-packing",
+    "test": "npm run verify"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

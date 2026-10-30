@@ -1,0 +1,49 @@
+{
+  "name": "@strauteka/space-utilization",
+  "version": "0.1.0",
+  "description": "Empty-space tracking for 3D bin packing: split and merge the free space in a container as boxes are added, to build your own packing algorithm.",
+  "keywords": [
+    "bin-packing",
+    "3d-bin-packing",
+    "container-loading",
+    "space-utilization",
+    "maximal-spaces",
+    "packing"
+  ],
+  "homepage": "https://github.com/Strauteka/bin-packing/tree/main/packages/space-utilization#readme",
+  "license": "Apache-2.0",
+  "author": "Jānis Strautiņš (https://janisstrautins.lv)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Strauteka/bin-packing.git",
+    "directory": "packages/space-utilization"
+  },
+  "bugs": "https://github.com/Strauteka/bin-packing/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build",
+    "prepublishOnly": "npm run verify"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
