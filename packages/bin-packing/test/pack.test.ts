@@ -4,8 +4,8 @@ import {
   betterResult,
   boxes,
   compareResults,
-  loadingOrder,
   loadingSequence,
+  loadingSteps,
   pack,
   rotationsFor,
   stackingVariations,
@@ -365,48 +365,77 @@ describe('stopWhenAllPacked', () => {
 
 describe('loading order', () => {
   const result = pack({ container: CONTAINER, items: MIXED, options: { attempts: 5, stacking: THESIS_STACKING, fitTolerance: 50 } });
-  const order = loadingOrder(result.placements);
-  const restsOn = (b: Placement, a: Placement) =>
+  const sequence = loadingSequence(result.placements);
+  type Box = { x: number; y: number; z: number; length: number; height: number; width: number };
+  const restsOn = (b: Box, a: Box) =>
     a.y + a.height === b.y &&
     Math.min(a.x + a.length, b.x + b.length) > Math.max(a.x, b.x) &&
     Math.min(a.z + a.width, b.z + b.width) > Math.max(a.z, b.z);
-
-  it('keeps every block', () => {
-    expect([...order].sort(byKey)).toEqual([...result.placements].sort(byKey));
+  const block = (id: string, x: number, y: number, z: number, length: number, width = 400): Placement => ({
+    id, x, y, z, length, height: 300, width, rotation: 'lhw',
+    box: { length, height: 300, width }, count: { length: 1, height: 1, width: 1 }, quantity: 1,
   });
 
-  it('never loads a block before the blocks it stands on', () => {
-    order.forEach((b, i) => {
-      for (const a of result.placements) if (restsOn(b, a)) expect(order.indexOf(a), `${b.id} before its support`).toBeLessThan(i);
-    });
-    expect(order[0]!.y).toBe(0);
-  });
-
-  it('loads a block that overhangs towards the back after the block it stands on', () => {
-    const block = (id: string, x: number, y: number, length: number): Placement => ({
-      id, x, y, z: 0, length, height: 300, width: 400, rotation: 'lhw',
-      box: { length, height: 300, width: 400 }, count: { length: 1, height: 1, width: 1 }, quantity: 1,
-    });
-    const base = block('base', 100, 0, 600); // on the floor, starting 100 from the back
-    const top = block('top', 0, 300, 600); // stands on base, but sticks out 100 further back
-    expect(loadingOrder([top, base]).map((p) => p.id)).toEqual(['base', 'top']);
-  });
-
-  it('starts at the back of the container', () => {
-    expect(order[0]!.x).toBe(Math.min(...result.placements.map((p) => p.x)));
-  });
-
-  it('lists every box once, in block order, each box after the boxes below it', () => {
-    const sequence = loadingSequence(result.placements);
+  it('lists every box once', () => {
     expect(sequence).toHaveLength(result.placements.reduce((n, p) => n + p.quantity, 0));
-    expect(sequence.map((b) => b.step)).toEqual([...sequence.map((b) => b.step)].sort((a, b) => a - b));
+    const key = (b: Box) => `${b.x},${b.y},${b.z}`;
+    expect(new Set(sequence.map(key)).size).toBe(sequence.length);
+  });
+
+  it('never loads a box before the boxes it stands on', () => {
     sequence.forEach((b, i) => {
       if (b.y === 0) return;
-      const support = sequence.findIndex((a) => a.y + a.height === b.y && a.x < b.x + b.length && b.x < a.x + a.length && a.z < b.z + b.width && b.z < a.z + a.width);
-      expect(support).toBeGreaterThanOrEqual(0);
-      expect(support).toBeLessThan(i);
+      const supports = sequence.filter((a) => restsOn(b, a));
+      expect(supports.length, `box at ${b.x},${b.y},${b.z} floats`).toBeGreaterThan(0);
+      for (const a of supports) expect(sequence.indexOf(a)).toBeLessThan(i);
     });
   });
-});
 
-const byKey = (a: Placement, b: Placement) => a.x - b.x || a.y - b.y || a.z - b.z;
+  it('builds walls: back to front, and inside a wall across the width, then up', () => {
+    // Apart from boxes pulled forward as support, the order is (x, then y, then z).
+    const steps = loadingSteps(result.placements);
+    for (const step of steps.filter((s) => !s.support))
+      step.boxes.slice(1).forEach((b, i) => {
+        const a = step.boxes[i]!;
+        expect(a.y < b.y || (a.y === b.y && a.z < b.z), 'inside a wall: across, then up').toBe(true);
+      });
+    const walls = steps.filter((s) => !s.support).map((s) => s.x);
+    expect(walls).toEqual([...walls].sort((a, b) => a - b));
+    expect(sequence[0]).toMatchObject({ x: 0, y: 0, wall: 0 });
+  });
+
+  it('splits blocks into single boxes', () => {
+    const big = block('big', 0, 0, 0, 600);
+    const stacked = { ...big, height: 600, count: { length: 1, height: 2, width: 1 }, quantity: 2 };
+    const seq = loadingSequence([stacked]);
+    expect(seq.map((b) => [b.y, b.height])).toEqual([[0, 300], [300, 300]]);
+  });
+
+  it('loads the boxes a box overhangs onto first, then that box', () => {
+    const floorBack = block('floor-back', 0, 0, 0, 600); // wall 1, on the floor
+    const floorSide = block('floor-side', 0, 0, 400, 600); // wall 1, next to it
+    const floorNext = block('floor-next', 600, 0, 0, 600); // wall 2, on the floor
+    const top = block('top', 0, 300, 0, 1200); // wall 1, lies on floor-back and floor-next
+    const seq = loadingSequence([top, floorNext, floorSide, floorBack]);
+    expect(seq.map((b) => b.id)).toEqual(['floor-back', 'floor-side', 'floor-next', 'top']);
+    const steps = loadingSteps([top, floorNext, floorSide, floorBack]);
+    expect(steps.map((s) => [s.wall, s.support])).toEqual([[0, false], [1, true], [0, false]]);
+  });
+
+  it('marks nested supports: a support that itself stands on a box further forward', () => {
+    const floor = block('floor', 0, 0, 0, 600); // wall 1, on the floor
+    const far = block('far', 1200, 0, 0, 600); // wall 3, on the floor
+    const middle = block('middle', 600, 0, 0, 600, 200); // wall 2, on the floor, narrow
+    const bridge = { ...block('bridge', 600, 300, 0, 1200), height: 300 }; // wall 2, on middle and far
+    const top = block('top', 0, 600, 0, 1200); // wall 1, on bridge (and nothing else at that height)
+    const steps = loadingSteps([top, bridge, middle, far, floor]);
+    // top needs bridge, which needs far: far and bridge are both supports loaded early.
+    expect(steps.map((s) => [s.x, s.support])).toEqual([[0, false], [600, true], [1200, true], [600, true], [0, false]]);
+  });
+
+  it('loads a box that overhangs towards the back after the box it stands on', () => {
+    const base = block('base', 100, 0, 0, 600); // on the floor, starting 100 from the back
+    const top = block('top', 0, 300, 0, 600); // stands on base, but sticks out 100 further back
+    expect(loadingSequence([top, base]).map((b) => b.id)).toEqual(['base', 'top']);
+  });
+});

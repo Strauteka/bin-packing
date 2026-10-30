@@ -1,9 +1,9 @@
 import { boxes, type Placement } from './pack.js';
 
-/** One box in loading order: `step` is the index of its block in `loadingOrder`. */
+/** One box in loading order. `wall` numbers the distinct distances from the back wall, from 0. */
 export interface LoadingBox {
   readonly id: string;
-  readonly step: number;
+  readonly wall: number;
   readonly x: number;
   readonly y: number;
   readonly z: number;
@@ -12,47 +12,70 @@ export interface LoadingBox {
   readonly width: number;
 }
 
+/** A run of consecutive boxes in the loading sequence that start at the same distance from the back wall. */
+export interface LoadingStep {
+  /** Index of the wall (distinct `x`), from 0 at the back. */
+  readonly wall: number;
+  readonly x: number;
+  readonly boxes: LoadingBox[];
+  /**
+   * True when these boxes are loaded early, out of wall order, because a box in an earlier wall
+   * stands on them.
+   */
+  readonly support: boolean;
+}
+
+type Box = Omit<LoadingBox, 'wall'>;
+
 const overlaps = (a0: number, a1: number, b0: number, b1: number): boolean => Math.min(a1, b1) - Math.max(a0, b0) > 0;
 
-/** Whether block `b` stands (at least partly) on top of block `a`. */
-function restsOn(b: Placement, a: Placement): boolean {
-  return a.y + a.height === b.y && overlaps(a.x, a.x + a.length, b.x, b.x + b.length) && overlaps(a.z, a.z + a.width, b.z, b.z + b.width);
-}
+/** Whether box `b` stands (at least partly) on box `a`. */
+const restsOn = (b: Box, a: Box): boolean =>
+  a.y + a.height === b.y && overlaps(a.x, a.x + a.length, b.x, b.x + b.length) && overlaps(a.z, a.z + a.width, b.z, b.z + b.width);
 
-const loadingKey = (p: Placement): number[] => [p.x, p.y, p.z];
-
-function compareKeys(a: number[], b: number[]): number {
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
-  return 0;
-}
+// Wall by wall from the back, and inside a wall across the width first, then upwards.
+const byLoadingKey = (a: Box, b: Box): number => a.x - b.x || a.y - b.y || a.z - b.z;
 
 /**
- * The blocks in an order you can actually load them: from the back of the container
- * (x = 0) towards the doors, and never before the blocks they stand on. Among the blocks
- * that can go next, the one furthest back, then lowest, then leftmost is chosen.
+ * Every box in the order people can load it, like building walls: start at the back wall
+ * (x = 0), fill across the width and then upwards, and only then move to the next distance
+ * from the back. Nobody has to climb onto boxes to reach the back.
+ *
+ * A box is never loaded before all the boxes it stands on. When the next box rests partly on a
+ * box from a later wall (it overhangs it), that box is loaded first.
  */
-export function loadingOrder(placements: readonly Placement[]): Placement[] {
-  const below = new Map(placements.map((b) => [b, placements.filter((a) => a !== b && restsOn(b, a))]));
-  const placed = new Set<Placement>();
-  const order: Placement[] = [];
-  while (order.length < placements.length) {
-    const remaining = placements.filter((p) => !placed.has(p));
-    const ready = remaining.filter((p) => below.get(p)!.every((a) => placed.has(a)));
-    // A block always rests on blocks below it, so something is ready; the fallback only guards
-    // against a block that somehow floats.
-    const pool = ready.length > 0 ? ready : remaining;
-    const next = pool.reduce((best, p) => (compareKeys(loadingKey(p), loadingKey(best)) < 0 ? p : best));
-    placed.add(next);
-    order.push(next);
-  }
+export function loadingSequence(placements: readonly Placement[]): LoadingBox[] {
+  const all = placements.flatMap((p) => boxes(p)).sort(byLoadingKey);
+  const below = new Map(all.map((b) => [b, all.filter((a) => a !== b && restsOn(b, a))]));
+  const walls = [...new Set(all.map((b) => b.x))].sort((a, b) => a - b);
+  const placed = new Set<Box>();
+  const order: LoadingBox[] = [];
+
+  // Place a box, after (recursively) the boxes it stands on, in loading order.
+  const place = (box: Box) => {
+    if (placed.has(box)) return;
+    placed.add(box);
+    for (const support of below.get(box)!) place(support);
+    order.push({ ...box, wall: walls.indexOf(box.x) });
+  };
+  for (const box of all) place(box);
   return order;
 }
 
-/** Every box in loading order: block by block, and inside a block back to front, bottom up. */
-export function loadingSequence(placements: readonly Placement[]): LoadingBox[] {
-  return loadingOrder(placements).flatMap((block, step) =>
-    boxes(block)
-      .sort((a, b) => a.x - b.x || a.y - b.y || a.z - b.z)
-      .map((b) => ({ ...b, step })),
-  );
+/** The loading sequence split into steps: runs of boxes at the same distance from the back wall. */
+export function loadingSteps(placements: readonly Placement[]): LoadingStep[] {
+  const steps: { wall: number; x: number; boxes: LoadingBox[] }[] = [];
+  for (const box of loadingSequence(placements)) {
+    const last = steps.at(-1);
+    if (last && last.x === box.x) last.boxes.push(box);
+    else steps.push({ wall: box.wall, x: box.x, boxes: [box] });
+  }
+  // A step loaded out of wall order (further from the back than some later step) is support for a
+  // box loaded later; supports can be nested, so compare with every later step, not just the next.
+  const laterMin: number[] = [];
+  for (let i = steps.length - 1, min = Infinity; i >= 0; i--) {
+    laterMin[i] = min;
+    min = Math.min(min, steps[i]!.x);
+  }
+  return steps.map((s, i) => ({ ...s, support: s.x > laterMin[i]! }));
 }

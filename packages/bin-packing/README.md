@@ -105,7 +105,12 @@ best = best ? betterResult(best, part) : part;
 
 ## Loading order
 
-`loadingOrder(result.placements)` sorts the blocks into an order you can actually load them: from the back of the container (x = 0) towards the doors, and never before the blocks they stand on, even when a block overhangs further back than its support. `loadingSequence(result.placements)` gives every single box in that order, each with the `step` (block) it belongs to, for example to animate the loading or print a plan.
+`loadingSequence(result.placements)` lists every single box in the order people can load it, like building walls:
+- Start at the back wall (x = 0) and fill **across the width, then upwards**.
+- Only then move to the next distance from the back, so nobody has to climb onto boxes.
+- A box is never loaded before every box it stands on. If the next box overhangs a box from a later wall, that box is loaded first (nested supports too).
+
+`loadingSteps(result.placements)` groups the sequence into steps of boxes at the same distance from the back. Each step has its `wall` number and a `support` flag for boxes loaded early because something in an earlier wall stands on them. This is useful for printed loading plans.
 
 ## How it works
 

@@ -2,8 +2,8 @@
 export { pack, boxes, compareResults, betterResult, stackingVariations } from './pack.js';
 export type { PackInput, PackOptions, PackResult, ItemInput, Placement, ItemCount, Size3, Variation } from './pack.js';
 export { rotationsFor } from './rotations.js';
-export { loadingOrder, loadingSequence } from './loading.js';
-export type { LoadingBox } from './loading.js';
+export { loadingSequence, loadingSteps } from './loading.js';
+export type { LoadingBox, LoadingStep } from './loading.js';
 export type { VerticalSides } from './rotations.js';
 
 // Lower level: one packing attempt on a Bin, to combine with your own strategy.
