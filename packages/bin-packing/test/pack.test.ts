@@ -219,18 +219,20 @@ describe('pack with explicit rotations', () => {
 describe('variations', () => {
   it('builds distinct stacking principles around the base, base first', () => {
     const variations = stackingVariations(THESIS_STACKING, 50);
-    expect(variations[0]).toEqual({ stacking: { ...THESIS_STACKING, disableMerge: false }, fitTolerance: 50 });
-    expect(variations).toHaveLength(10); // 3 over-stacking levels × 3 fit tolerances + merging off
-    expect(new Set(variations.map((v) => JSON.stringify(v))).size).toBe(10);
+    expect(variations[0]).toEqual({ stacking: { ...THESIS_STACKING, disableMerge: false }, fitTolerance: 50, layers: false });
+    // (3 over-stacking levels × 3 fit tolerances + merging off) × columns and layers
+    expect(variations).toHaveLength(20);
+    expect(new Set(variations.map((v) => JSON.stringify(v))).size).toBe(20);
+    expect(variations.filter((v) => v.layers)).toHaveLength(10);
     expect(variations.some((v) => v.stacking?.overhangLength === 0)).toBe(true);
     expect(variations.some((v) => v.stacking?.overhangLength === 200)).toBe(true);
-    expect(variations.at(-1)?.stacking?.disableMerge).toBe(true);
+    expect(variations.filter((v) => v.stacking?.disableMerge)).toHaveLength(2);
   });
 
   it('leaves out duplicates when the base has nothing to scale', () => {
-    const variations = stackingVariations(); // all zeros: only "as is" and "merging off" differ
-    expect(variations).toHaveLength(2);
-    expect(variations[1]?.stacking?.disableMerge).toBe(true);
+    const variations = stackingVariations(); // all zeros: only "as is" and "merging off" differ, × layers
+    expect(variations).toHaveLength(4);
+    expect(variations.map((v) => [v.stacking?.disableMerge, v.layers])).toEqual([[false, false], [true, false], [false, true], [true, true]]);
   });
 
   it('produces valid packings and reports which variation won', () => {
@@ -270,5 +272,53 @@ describe('splitting attempts across workers', () => {
     const input = { container: CONTAINER, items: dense };
     expect(() => pack({ ...input, options: { firstAttempt: -1 } })).toThrow(/firstAttempt/);
     expect(() => pack({ ...input, options: { attemptStep: 0 } })).toThrow(/attemptStep/);
+  });
+});
+
+describe('layers mode', () => {
+  const items: ItemInput[] = [
+    { id: 'a', length: 600, height: 400, width: 400, quantity: 60 },
+    { id: 'b', length: 400, height: 300, width: 300, quantity: 80, rotations: 'upright' },
+  ];
+
+  it('only builds one-box-high blocks', () => {
+    const result = pack({ container: CONTAINER, items, options: { attempts: 10, layers: true, stacking: THESIS_STACKING } });
+    expectValidPacking(result, CONTAINER, items);
+    expect(result.placements.every((p) => p.count.height === 1)).toBe(true);
+  });
+
+  it('finds a lower load than columns on a load where tallest-first layering pays off', () => {
+    // A random 8-type load (as in the Java demo) that fills 58% of the container; all of it fits.
+    const load: ItemInput[] = [
+      [545, 570, 388, 20, true], [604, 323, 543, 23, false], [229, 397, 510, 52, false], [600, 363, 237, 47, true],
+      [343, 439, 373, 43, false], [463, 335, 435, 36, false], [383, 206, 577, 53, true], [519, 430, 265, 41, false],
+    ].map(([length, height, width, quantity, upright], i) => ({
+      id: `t${i}`, length: length as number, height: height as number, width: width as number, quantity: quantity as number,
+      ...(upright ? { rotations: 'upright' as const } : {}),
+    }));
+    const container = { length: 5898, height: 2393, width: 2352 }; // inner size of a 20 ft container
+    const variations = stackingVariations(THESIS_STACKING, 50);
+    const run = (layers: boolean) =>
+      pack({ container, items: load, options: { attempts: 40, variations: variations.filter((v) => v.layers === layers) } });
+    const columns = run(false);
+    const layered = run(true);
+    expect(columns.unpacked).toEqual([]);
+    expect(layered.unpacked).toEqual([]);
+    expect(layered.usedHeight).toBeLessThan(columns.usedHeight);
+  });
+
+  it('stands the tallest boxes on the floor first', () => {
+    const load: ItemInput[] = [
+      { id: 'low', length: 500, height: 200, width: 500, quantity: 20, rotations: 'upright' },
+      { id: 'tall', length: 400, height: 900, width: 400, quantity: 6, rotations: 'upright' },
+      { id: 'mid', length: 300, height: 300, width: 300, quantity: 30, rotations: 'upright' },
+    ];
+    const result = pack({ container: CONTAINER, items: load, options: { attempts: 1, layers: true } });
+    expect(result.placements[0]).toMatchObject({ id: 'tall', x: 0, y: 0, z: 0 });
+  });
+
+  it('a variation can switch layers on', () => {
+    const result = pack({ container: CONTAINER, items, options: { attempts: 2, variations: [{ layers: true }] } });
+    expect(result.placements.every((p) => p.count.height === 1)).toBe(true);
   });
 });

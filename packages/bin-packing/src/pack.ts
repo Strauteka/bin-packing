@@ -41,6 +41,11 @@ export interface PackOptions {
   /** Space merging and over-stacking settings. */
   readonly stacking?: Partial<StackConfig>;
   /**
+   * Build only one-box-high blocks, so the container fills floor by floor and the load stays
+   * low (default false: blocks may also be columns, as in the thesis).
+   */
+  readonly layers?: boolean;
+  /**
    * Different stacking principles to try. Attempts take turns: each variation's `stacking` and
    * `fitTolerance` replace the base ones above for its attempts. `stackingVariations()` builds a
    * sensible set. Without variations, every attempt uses the base settings.
@@ -60,6 +65,8 @@ export interface PackOptions {
 export interface Variation {
   readonly stacking?: Partial<StackConfig>;
   readonly fitTolerance?: number;
+  /** Build only one-box-high blocks, filling floor by floor (see `PackOptions.layers`). */
+  readonly layers?: boolean;
 }
 
 export interface PackInput {
@@ -137,6 +144,7 @@ export function pack(input: PackInput): PackResult {
   const variants = (options.variations?.length ? options.variations : [{}]).map((v) => ({
     empty: new Bin<Item>(size, { ...DEFAULT_STACK_CONFIG, ...options.stacking, ...v.stacking }),
     fitTolerance: v.fitTolerance ?? options.fitTolerance ?? 0,
+    layers: v.layers ?? options.layers ?? false,
   }));
 
   const started = now();
@@ -147,8 +155,8 @@ export function pack(input: PackInput): PackResult {
     const attempt = firstAttempt + made * attemptStep;
     // Consecutive attempt pairs share a variation, so each variation runs both fill strategies.
     const variation = Math.floor(attempt / 2) % variants.length;
-    const { empty, fitTolerance } = variants[variation]!;
-    const { bin } = packOnce(empty, start, attempt, seededRandom(attemptSeed(seed, attempt)), fitTolerance);
+    const { empty, fitTolerance, layers } = variants[variation]!;
+    const { bin } = packOnce(empty, start, attempt, seededRandom(attemptSeed(seed, attempt)), fitTolerance, layers);
     if (!best || better(bin, best.bin)) best = { bin, attempt, variation };
     made++;
   }
@@ -174,7 +182,8 @@ export function betterResult(a: PackResult, b: PackResult): PackResult {
 /**
  * A set of stacking principles around `base`, for `PackOptions.variations`: the base itself
  * first, then no over-stacking and double over-stacking, each with no, normal and double fit
- * tolerance, and finally merging switched off. `minSpaceSide` and `heightTolerance` stay as
+ * tolerance, and merging switched off. All of these come twice: with column blocks (as in the
+ * thesis) and in layers mode, which keeps the load low. `minSpaceSide` and `heightTolerance` stay as
  * given, since they mostly affect speed. Duplicates (e.g. from a base of zeros) are left out.
  */
 export function stackingVariations(base: Partial<StackConfig> = {}, fitTolerance = 0): Variation[] {
@@ -187,8 +196,11 @@ export function stackingVariations(base: Partial<StackConfig> = {}, fitTolerance
     narrowWidth: b.narrowWidth * k,
   });
   const out: Variation[] = [];
-  for (const k of [1, 0, 2]) for (const f of [1, 0, 2]) out.push({ stacking: scaled(k), fitTolerance: fitTolerance * f });
-  out.push({ stacking: { ...b, disableMerge: true }, fitTolerance });
+  for (const layers of [false, true]) {
+    for (const k of [1, 0, 2])
+      for (const f of [1, 0, 2]) out.push({ stacking: scaled(k), fitTolerance: fitTolerance * f, layers });
+    out.push({ stacking: { ...b, disableMerge: true }, fitTolerance, layers });
+  }
   const seen = new Set<string>();
   return out.filter((v) => {
     const key = JSON.stringify(v);
