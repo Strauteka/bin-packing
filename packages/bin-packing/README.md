@@ -120,6 +120,22 @@ const placed = expandPallets(result.placements, pallets); // bases + every box, 
 - **Pallet items** are upright (they may turn a quarter round), go on the floor only, and nothing is stacked on them.
 - **`expandPallets`** turns each packed pallet into its base (`pallet-n:base`) plus its boxes, turned with the pallet if needed.
 
+## Layer plans: one or a few box types
+
+```ts
+import { packLayers, pack, betterResult } from '@strauteka/bin-packing';
+
+const layers = packLayers({ container, items, options }); // null when it doesn't apply
+const best = layers ? betterResult(layers, pack({ container, items, options })) : pack({ container, items, options });
+```
+
+With one box type, or a few (up to `LAYER_PLAN_MAX_TYPES`, 6), whole layers are often better than the randomised packer, and regular:
+- **One layer** (`bestPattern(length, width, a, b)`): as many `a × b` boxes as fit on a rectangle, each turned one of two ways: the *pallet loading problem*. Straight cuts on sums of the box sides, plus on floors the 4-block "pinwheel" patterns (Smith & De Cani; Bischoff & Dowsland).
+- **Layers on layers**: one layer kind per box side that may point up; a knapsack picks the kinds that hold the most boxes in the height. Across types, a second knapsack shares the height by volume. Layers that cover more go lower.
+- **Two plans**, the better one kept: floor layers stacked up (as on a pallet), and walls across the width lined up from the back wall to the doors.
+- Boxes that don't make whole layers, and `noStackOnTop` / `floorOnly` boxes, go to `pack()` in the space left. Boxes that would stand on less than 75% of their base are taken out.
+- Null with more types, with `rankByPriority`, or when no type makes a layer. The result's `bestAttempt` and `variation` are -1: it isn't one of `pack()`'s attempts.
+
 ## Loading order
 
 `loadingSequence(result.placements)` lists every single box in the order people can load it, like building walls:

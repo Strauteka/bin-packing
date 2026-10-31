@@ -28,3 +28,7 @@ export {
   fits,
 } from '@strauteka/space-utilization';
 export type { StackConfig, Dim, Rotation } from '@strauteka/space-utilization';
+
+// Whole layers of each box type, for one or a few types (0.5.0).
+export { packLayers, bestPattern, LAYER_PLAN_MAX_TYPES } from './layers.js';
+export type { Pattern, PatternBlock } from './layers.js';

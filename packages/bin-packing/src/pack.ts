@@ -308,7 +308,7 @@ function toItem(input: ItemInput, index: number): Item {
   };
 }
 
-function toRotations(rotations: ItemInput['rotations'], where: string): readonly Rotation[] {
+export function toRotations(rotations: ItemInput['rotations'], where: string): readonly Rotation[] {
   if (rotations === undefined || rotations === 'all') return ROTATIONS;
   if (rotations === 'upright') return UPRIGHT_ROTATIONS;
   if (!Array.isArray(rotations) || rotations.length === 0)
