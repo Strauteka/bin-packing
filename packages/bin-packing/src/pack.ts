@@ -206,11 +206,23 @@ export function pack(input: PackInput): PackResult {
           ),
         bin,
       );
-  const variants = (options.variations?.length ? options.variations : [{}]).map((v) => ({
-    empty: withPreloaded(new Bin<Item>(size, { ...DEFAULT_STACK_CONFIG, ...options.stacking, ...v.stacking })),
-    fitTolerance: v.fitTolerance ?? options.fitTolerance ?? 0,
-    mode: { layers: v.layers ?? options.layers ?? false, tallestFirst: v.tallestFirst ?? options.tallestFirst ?? false },
-  }));
+  // Built when an attempt first uses the variation: placing the preloaded boxes takes time, and a
+  // call often runs a single attempt (one variation) of many.
+  const variations = options.variations?.length ? options.variations : [{}];
+  const built = new Map<number, { empty: Bin<Item>; fitTolerance: number; mode: { layers: boolean; tallestFirst: boolean } }>();
+  const variant = (index: number) => {
+    let found = built.get(index);
+    if (!found) {
+      const v = variations[index]!;
+      found = {
+        empty: withPreloaded(new Bin<Item>(size, { ...DEFAULT_STACK_CONFIG, ...options.stacking, ...v.stacking })),
+        fitTolerance: v.fitTolerance ?? options.fitTolerance ?? 0,
+        mode: { layers: v.layers ?? options.layers ?? false, tallestFirst: v.tallestFirst ?? options.tallestFirst ?? false },
+      };
+      built.set(index, found);
+    }
+    return found;
+  };
   const total = items.reduce((sum, i) => sum + i.quantity, 0);
   const packedCount = (bin: Bin<Item>) => bin.cargo.reduce((sum, c) => sum + c.count, 0);
   // Packed volume per priority level, highest priority first (only with rankByPriority).
@@ -226,8 +238,8 @@ export function pack(input: PackInput): PackResult {
   while (made < attempts && (made === 0 || now() < deadline)) {
     const attempt = firstAttempt + made * attemptStep;
     // Consecutive attempt pairs share a variation, so each variation runs both fill strategies.
-    const variation = Math.floor(attempt / 2) % variants.length;
-    const { empty, fitTolerance, mode } = variants[variation]!;
+    const variation = Math.floor(attempt / 2) % variations.length;
+    const { empty, fitTolerance, mode } = variant(variation);
     const { bin } = packOnce(empty, start, attempt, seededRandom(attemptSeed(seed, attempt)), fitTolerance, mode);
     if (!best || better(bin, best.bin, rank)) best = { bin, attempt, variation };
     made++;
