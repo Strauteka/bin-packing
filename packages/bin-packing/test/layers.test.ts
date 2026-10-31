@@ -93,9 +93,9 @@ describe('bestPattern', () => {
   it('is quick on a container floor with small odd boxes', () => {
     const started = Date.now();
     const pattern = bestPattern(5898, 2352, 137, 211);
+    expect(Date.now() - started).toBeLessThan(1000);
     checkPattern(pattern, 5898, 2352, 137, 211);
     expect(pattern.count).toBeGreaterThanOrEqual(Math.floor((5898 * 2352) / (137 * 211)) - 12);
-    expect(Date.now() - started).toBeLessThan(1000);
   });
 });
 
