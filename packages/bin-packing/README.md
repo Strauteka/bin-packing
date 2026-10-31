@@ -136,6 +136,19 @@ With one box type, or a few (up to `LAYER_PLAN_MAX_TYPES`, 6), whole layers are 
 - Boxes that don't make whole layers, and `noStackOnTop` / `floorOnly` boxes, go to `pack()` in the space left. Boxes that would stand on less than 75% of their base are taken out.
 - Null with more types, with `rankByPriority`, or when no type makes a layer. The result's `bestAttempt` and `variation` are -1: it isn't one of `pack()`'s attempts.
 
+## Loading in steps: preloaded boxes
+
+```ts
+// The first part is loaded: keep those boxes where they are and pack the rest around them.
+const next = pack({ container, items: restOfTheBoxes, preloaded: firstPart.placements.flatMap(boxes) });
+```
+
+`preloaded` boxes go into the container first (bottom up) and stay where they are. The packer fills around them and may stack on them, unless a box has `noStackOnTop`. They aren't in the result: its placements, counts and volume are for the boxes packed now. Layer plans don't apply to preloaded loads.
+
+## Stack limits
+
+`maxStack: n` on an item allows at most `n` boxes of that type directly on top of each other. Other types may still go between them or on top. Layer plans leave such types to `pack()`.
+
 ## Loading order
 
 `loadingSequence(result.placements)` lists every single box in the order people can load it, like building walls:

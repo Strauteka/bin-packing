@@ -12,6 +12,8 @@ export interface PackItem {
   readonly floorOnly?: boolean;
   /** Nothing is ever placed on top of it (e.g. a loaded pallet). */
   readonly noStackOnTop?: boolean;
+  /** At most this many of it directly on top of each other. */
+  readonly maxStack?: number;
 }
 
 /** A box type and how many of it are already placed. */
@@ -45,7 +47,7 @@ export function packOnce<T extends PackItem>(
   for (const priority of priorities) {
     for (;;) {
       const candidates = tracked.filter((t) => t.item.priority === priority && t.item.quantity > t.used);
-      const cargo = findCargo(current.spaces, candidates, strategy, random, fitTolerance, mode);
+      const cargo = findCargo(current, candidates, strategy, random, fitTolerance, mode);
       if (!cargo) break;
       current = current.add(cargo, cargo.ref.noStackOnTop === true);
       // The placed type moves to the end of the list, as in the thesis (it affects tie-breaking).
@@ -59,15 +61,41 @@ export function packOnce<T extends PackItem>(
 }
 
 function findCargo<T extends PackItem>(
-  spaces: readonly Space[],
+  bin: Bin<T>,
   candidates: readonly Tracked<T>[],
   strategy: number,
   random: Random,
   fitTolerance: number,
   mode: PackMode,
 ): Cargo<T> | undefined {
-  const space = selectSpace(spaces, candidates, strategy);
-  return space && bestCargo(space, candidates, random, fitTolerance, mode);
+  let spaces = bin.spaces;
+  for (;;) {
+    const space = selectSpace(spaces, candidates, strategy);
+    if (!space) return undefined;
+    const cargo = bestCargo(space, candidates, random, fitTolerance, mode, bin.cargo);
+    if (cargo) return cargo;
+    // Only a stack limit can leave a space without a block: try the next space.
+    spaces = spaces.filter((s) => s !== space);
+  }
+}
+
+/** How many boxes of `ref` stand on top of each other right under the area, up to `y`. */
+function sameBelow<T>(cargo: readonly Cargo<T>[], area: Space, y: number, ref: T): number {
+  let most = 0;
+  for (const c of cargo)
+    if (c.ref === ref && Math.abs(c.h__ - y) < 1e-6 && c.l_ < area.l__ && area.l_ < c.l__ && c.w_ < area.w__ && area.w_ < c.w__)
+      most = Math.max(most, c.stack.h + sameBelow(cargo, c, c.h_, ref));
+  return most;
+}
+
+/** The block within its type's stack limit: lower, or none when the boxes under it are already at the limit. */
+function withinStack<T extends PackItem>(block: Cargo<T>, cargo: readonly Cargo<T>[]): Cargo<T> | undefined {
+  const max = block.ref.maxStack;
+  if (max === undefined) return block;
+  const room = max - (block.h_ > 0 ? sameBelow(cargo, block, block.h_, block.ref) : 0);
+  if (room <= 0) return undefined;
+  if (block.stack.h <= room) return block;
+  return new Cargo(block.ref, block.ref.size, block.rotation, block.position, { ...block.stack, h: room });
 }
 
 /** The empty space to fill next: the lowest (or, for odd strategies, highest) one any box fits. */
@@ -104,6 +132,7 @@ function bestCargo<T extends PackItem>(
   random: Random,
   fitTolerance: number,
   { layers = false, tallestFirst = false }: PackMode,
+  placed: readonly Cargo<T>[] = [],
 ): Cargo<T> | undefined {
   const builders = layers ? [buildA, buildB] : [buildA, buildB, buildC];
   const blocks = candidates
@@ -118,7 +147,9 @@ function bestCargo<T extends PackItem>(
           const left = t.item.quantity - t.used;
           return own.map((build) => build(space, t.item, left, r, random));
         });
-    });
+    })
+    .map((c) => withinStack(c, placed))
+    .filter((c): c is Cargo<T> => c !== undefined);
   return minBy(blocks, (c) => {
     const left = subtract(space, c);
     const gaps = (layers ? [left.l, left.w] : [left.l, left.h, left.w]).sort((a, b) => a - b);

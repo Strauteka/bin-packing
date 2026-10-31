@@ -1,6 +1,6 @@
 {
   "name": "@strauteka/bin-packing",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Randomised 3D bin packing for container loading, built on @strauteka/space-utilization. TypeScript port of a master's thesis algorithm.",
   "keywords": [
     "bin-packing",

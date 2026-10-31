@@ -1,5 +1,6 @@
 import {
   Bin,
+  Cargo,
   DEFAULT_STACK_CONFIG,
   ROTATIONS,
   UPRIGHT_ROTATIONS,
@@ -30,6 +31,24 @@ export interface ItemInput extends Size3 {
   /** Only place it directly on the container floor (default false). */
   readonly floorOnly?: boolean;
   /** Never place anything on top of it (default false). */
+  readonly noStackOnTop?: boolean;
+  /**
+   * At most this many boxes of this type directly on top of each other (default: no limit).
+   * Other box types may still go in between or on top.
+   */
+  readonly maxStack?: number;
+}
+
+/**
+ * A box (or block) already in the container, kept where it is: e.g. the first part of a load
+ * that's been loaded. The packer fills around it and may stack on it. Container coordinates.
+ */
+export interface PreloadedBox extends Size3 {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Nothing may be placed on it. */
   readonly noStackOnTop?: boolean;
 }
 
@@ -93,6 +112,11 @@ export interface PackInput {
   readonly container: Size3;
   readonly items: readonly ItemInput[];
   readonly options?: PackOptions;
+  /**
+   * Boxes already in the container (see `PreloadedBox`). They are not in the result: its
+   * placements, counts and volume are for the boxes packed now.
+   */
+  readonly preloaded?: readonly PreloadedBox[];
 }
 
 /** A block of identical boxes: `count.length × count.height × count.width` copies of `box`, starting at (x, y, z). */
@@ -163,8 +187,27 @@ export function pack(input: PackInput): PackResult {
 
   // One empty bin and fit tolerance per variation (just the base settings without variations).
   const size = { l: container.length, h: container.height, w: container.width };
+  const preloaded = input.preloaded ?? [];
+  preloaded.forEach((b, i) => checkPreloaded(`preloaded[${i}]`, b, container));
+  // Preloaded boxes go in first, bottom up, as cargo the packer can't move (and may stack on).
+  const withPreloaded = (bin: Bin<Item>) =>
+    [...preloaded]
+      .sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z)
+      .reduce(
+        (b, p) =>
+          b.add(
+            new Cargo<Item>(
+              { id: p.id, size: { l: p.length, h: p.height, w: p.width }, quantity: 0, rotations: ['lhw'], priority: 0 },
+              { l: p.length, h: p.height, w: p.width },
+              'lhw',
+              { l: p.x, h: p.y, w: p.z },
+            ),
+            p.noStackOnTop === true,
+          ),
+        bin,
+      );
   const variants = (options.variations?.length ? options.variations : [{}]).map((v) => ({
-    empty: new Bin<Item>(size, { ...DEFAULT_STACK_CONFIG, ...options.stacking, ...v.stacking }),
+    empty: withPreloaded(new Bin<Item>(size, { ...DEFAULT_STACK_CONFIG, ...options.stacking, ...v.stacking })),
     fitTolerance: v.fitTolerance ?? options.fitTolerance ?? 0,
     mode: { layers: v.layers ?? options.layers ?? false, tallestFirst: v.tallestFirst ?? options.tallestFirst ?? false },
   }));
@@ -191,7 +234,7 @@ export function pack(input: PackInput): PackResult {
     if (options.stopWhenAllPacked && packedCount(best.bin) === total) break;
   }
   return {
-    ...toResult(best!.bin, items, made, now() - started),
+    ...toResult(best!.bin, items, made, now() - started, preloaded.length),
     bestAttempt: best!.attempt,
     variation: best!.variation,
     ...(rank && { packedByPriority: rank(best!.bin) }),
@@ -305,6 +348,7 @@ function toItem(input: ItemInput, index: number): Item {
     priority: input.priority ?? 1,
     ...(input.floorOnly && { floorOnly: true }),
     ...(input.noStackOnTop && { noStackOnTop: true }),
+    ...(input.maxStack !== undefined && { maxStack: checkMaxStack(where, input.maxStack) }),
   };
 }
 
@@ -316,6 +360,19 @@ export function toRotations(rotations: ItemInput['rotations'], where: string): r
   for (const r of rotations)
     if (!ROTATIONS.includes(r)) throw new RangeError(`${where}.rotations: unknown rotation "${String(r)}"`);
   return ROTATIONS.filter((r) => rotations.includes(r)); // canonical order, no duplicates
+}
+
+function checkMaxStack(where: string, n: number): number {
+  if (!Number.isInteger(n) || n < 1) throw new RangeError(`${where}.maxStack must be a positive integer`);
+  return n;
+}
+
+function checkPreloaded(where: string, b: PreloadedBox, container: Size3): void {
+  if (typeof b.id !== 'string') throw new TypeError(`${where}.id must be a string`);
+  checkSize(where, b);
+  for (const [pos, side] of [['x', 'length'], ['y', 'height'], ['z', 'width']] as const)
+    if (!Number.isFinite(b[pos]) || b[pos] < -1e-6 || b[pos] + b[side] > container[side] + 1e-6)
+      throw new RangeError(`${where} must be inside the container`);
 }
 
 function checkSize(where: string, s: Size3): void {
@@ -336,8 +393,11 @@ function toResult(
   items: readonly Item[],
   attempts: number,
   elapsedMs: number,
+  /** How many cargo blocks at the start are preloaded boxes, left out of the result. */
+  preloaded = 0,
 ): Omit<PackResult, 'bestAttempt' | 'variation'> {
-  const placements = bin.cargo.map((c): Placement => ({
+  const cargo = bin.cargo.slice(preloaded);
+  const placements = cargo.map((c): Placement => ({
     id: c.ref.id,
     x: c.l_,
     y: c.h_,
@@ -353,16 +413,17 @@ function toResult(
   const packedById = new Map<string, number>();
   for (const p of placements) packedById.set(p.id, (packedById.get(p.id) ?? 0) + p.quantity);
   const containerVolume = bin.l * bin.h * bin.w;
+  const usedVolume = cargo.reduce((sum, c) => sum + c.l * c.h * c.w, 0);
   return {
     placements,
     packed: items.map((i) => ({ id: i.id, quantity: packedById.get(i.id) ?? 0 })).filter((c) => c.quantity > 0),
     unpacked: items
       .map((i) => ({ id: i.id, quantity: i.quantity - (packedById.get(i.id) ?? 0) }))
       .filter((c) => c.quantity > 0),
-    utilization: bin.usedVolume / containerVolume,
-    usedVolume: bin.usedVolume,
+    utilization: usedVolume / containerVolume,
+    usedVolume,
     containerVolume,
-    usedHeight: bin.usedHeight,
+    usedHeight: cargo.reduce((max, c) => Math.max(max, c.h__), 0),
     attempts,
     elapsedMs,
   };

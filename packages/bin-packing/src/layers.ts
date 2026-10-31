@@ -278,8 +278,8 @@ function plan(input: PackInput, direction: Direction): PackResult | null {
   const { container, items } = input;
   const axis = direction === 'floors' ? 'height' : 'length';
   const cap = Math.floor(container[axis] + EPS);
-  // Boxes that may not carry others or must stay on the floor are left to the packer.
-  const layered = items.filter((i) => !i.noStackOnTop && !i.floorOnly);
+  // Boxes that may not carry others, must stay on the floor or have a stack limit are left to the packer.
+  const layered = items.filter((i) => !i.noStackOnTop && !i.floorOnly && i.maxStack === undefined);
   const types = layered
     .map((item) => {
       const kinds = layerKinds(item, container, direction);
@@ -420,11 +420,18 @@ function result(placements: Placement[], items: readonly ItemInput[], container:
  * Packs whole layers of each box type (see the top of this file): floor layers stacked up, and
  * walls lined up from the back wall, and returns the better plan. For one or a few box types
  * (up to `LAYER_PLAN_MAX_TYPES`) with many boxes each, this is often better than `pack()`, and
- * regular. Null when it doesn't apply: more types, `rankByPriority`, or no type making a layer.
+ * regular. Null when it doesn't apply: more types, `rankByPriority`, preloaded boxes, or no type
+ * making a layer.
  * The result has `bestAttempt` and `variation` -1, as it isn't one of `pack()`'s attempts.
  */
 export function packLayers(input: PackInput): PackResult | null {
-  if (input.items.length === 0 || input.items.length > LAYER_PLAN_MAX_TYPES || input.options?.rankByPriority) return null;
+  if (
+    input.items.length === 0 ||
+    input.items.length > LAYER_PLAN_MAX_TYPES ||
+    input.options?.rankByPriority ||
+    input.preloaded?.length
+  )
+    return null;
   const started = now();
   const plans = (['walls', 'floors'] as const).map((d) => plan(input, d)).filter((p): p is PackResult => p !== null);
   if (plans.length === 0) return null;
